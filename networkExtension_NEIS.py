@@ -1,0 +1,150 @@
+# %% Imports
+
+
+import geopandas as gp
+import pandas as pd
+import os
+import time
+from pathlib import Path
+
+from suitable_network_routing import (network_span_bfs)
+from internal_auxFunctions import (simultaneity_DH, relThermalLoss_DH, relThermalLossPower_DH, animate_networkGeneration_gdf,)
+
+
+# %% Load data
+
+flp = Path(r'D:\GitLab\paper_generic_network_creation\data\lineDensity')
+flp_out = flp
+
+# Coordinate system
+cs = 'EPSG:25832'
+
+lines               = gp.read_file(flp / Path(r'Streets_LineDensity_bestand_renov_v1.gpkg')).explode(index_parts = False).to_crs(cs)
+lines['length']     = lines.geometry.length
+lines['demand_use_th'] = lines['ld_demand_use_th'] * lines.geometry.length
+lines['p_use_th'] = lines['demand_use_th'] / 1700
+
+mask                = gp.read_file(flp / Path('mask_Networks.gpkg')).to_crs(cs)
+lines               = gp.sjoin(left_df = lines, right_df = mask[['geometry']], how = 'left', predicate = 'intersects')
+lines               = lines[~lines['index_right'].isna()].reset_index(drop = True).drop(columns = 'index_right')
+
+startpoints         = gp.read_file(flp / Path(r'startpointsProducers.gpkg')).to_crs(cs)
+
+### Limits & attributes
+
+# Attribute for line density
+att_ld = 'ld_demand_use_th'
+
+# Attribute for heat demand
+att_heatDemand = 'demand_use_th'
+
+# Attribute for thermal power on line (MW)
+att_pth = 'p_use_th'
+
+# Attribute for length of line
+att_len = 'length'
+
+# Attribute für die Anzahl an Gebäuden pro Straßenzug
+att_nB = 'nBuildsdemand_use_th'
+
+# Energy budget for production at defined starting points (MWh)
+energyBudget = [[22000, 10e04, 20000]]#[[8000, 10e04, 10000], [16000, 10e04, 20000], [22000, 10e04, 20000]]
+
+# Thermal power budget for production at defined starting points (MW)
+powerBudget = [[18, 12.5, 8]]#[[4, 12.5, 4], [8, 12.5, 8], [18, 12.5, 8]]
+
+# mindest Anzahl an Gebäuden pro ein Netz
+n_build = 17
+
+# Sort edges by edge attribute in descending order (sorting per node adjacent edges)
+sortByAttr = att_ld
+
+
+
+# %% Start algorithm
+# def relThermalLossPower_DH(pd, referToInput:bool = False):
+
+#     return 0.05
+
+# def simultaneity_DH(n:int, bottomLim:float = 0.7):
+
+#     return 1
+
+# def relThermalLoss_DH(ld, referToInput:bool = False):
+
+#     return 0.15
+
+for r, run in enumerate(powerBudget):
+    
+    starttime = time.time()
+
+    gdf_graphs, graphList = network_span_bfs(
+        lines = lines,
+        startpoints = startpoints,
+        val_Attr = att_ld,
+        att_pth = att_pth,
+        length_Attr = att_len,
+        att_nB = att_nB,
+        min_nB = n_build,
+        att_heatDemand = att_heatDemand,
+        sortByAttr = sortByAttr,
+        sortMethod = 'descending',
+        considerPowerBudget = True,
+        energyBudget = energyBudget[r],
+        powerBudget = powerBudget[r],
+        adaptThermalLoss = relThermalLoss_DH,
+        adaptSimultaneityFactor = simultaneity_DH,
+        adaptThermalPowerLoss = relThermalLossPower_DH,
+        minvalAttr_maxLength = {-0.1:50},
+        createMST = False
+    )
+    endtime = time.time()
+    timeElapsed = endtime - starttime
+    print(f'\n### Time elapsed for algorithm is {timeElapsed:.2} seconds ###')
+
+
+    ## Plotting
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots()
+    gdf_graphs.plot(ax = ax, column = att_ld, vmin = 0, vmax = 5, legend = True)
+
+    startpoints.plot(ax = ax, color = 'red', zorder = 10)
+
+    # Export
+
+    if not os.path.exists(flp_out):
+        os.makedirs(flp_out)
+        print('### New directory for storing results is created! ###')
+
+    # Save edges
+    # output_path = flp_out / Path(f'graphs_extension_2025_v3_relLoss0p05_relLoss0p15_simultaneity1.gpkg')
+    output_path = flp_out / Path(f'graphs_extension_2025_v2.gpkg')
+
+    # gdf_graphs.to_file(output_path, layer = f'Pthprod1_{powerBudget[r][0]:.1f}MW_Pthprod2_{powerBudget[r][1]:.1f}MW_Pthprod3_{powerBudget[r][2]:.1f}MW', driver="GPKG")
+
+
+# %% *--- Template: Create animated visualization of development for network routing ---*
+
+lines_final = gdf_graphs.copy()
+lines_final.sort_values(by = 'order', inplace = True, ascending = True)
+lines_final.reset_index(drop = True, inplace = True)
+
+lines_final['length_cum'] = lines_final['length'].cumsum()
+lines_final['heat_Demand'] = lines_final['ld_demand_use_th'] * lines_final['length']
+lines_final['heat_Demand_cum'] = lines_final['heat_Demand'].cumsum()
+
+lines_final['ld_demand_use_th_mean_ordered'] = lines_final['heat_Demand_cum'] / lines_final['length_cum']
+
+
+animate_networkGeneration_gdf(
+    gdf = lines_final,
+    valAttr = 'ld_demand_use_th',
+    cbarLabel = 'line density (MWh/m)',
+    cmapMinMax = (0, 5),
+    legendAttr = {'order ': 'order', 'mean ld (MWh/m) = ':'ld_demand_use_th_mean_ordered', 'current ld (MWh/m) = ':'ld_demand_use_th', 'summed length (m) = ':'length_cum'},
+    interval = 250,
+    savePath=Path(r'C:\Users\const\Desktop\videos'),
+    filename = 'video_bfs.gif'
+)
+

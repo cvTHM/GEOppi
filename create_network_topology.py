@@ -1405,7 +1405,6 @@ def create_ppi_network_from_gdf(
         checkUnconnectedComponents:bool = False
     ):
 
-
     """
     Function that creates complete pandapipes network object from geopandas.GeoDataFrame of lines, buildings, valves, production sites.
 

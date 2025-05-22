@@ -12,7 +12,6 @@ from shapely import (set_precision,)
 
 from auxFunctions import (extractPointsFromLines, nnearest, split_lines, split_lines_at_points,
                           match_polygons_to_points_by_intersection, geodata_from_geometry, extractRasterValsAtPoints, closest_point, checkConnectivity)
-from suitable_network_routing import (MST_graph_subset)
 
 def assign_default_values_ppi(
         gdf:gp.GeoDataFrame, 
@@ -179,8 +178,7 @@ def createUniqueJunctions(
     idxs                        = [a.index(i) for i in s]
     points_new_list             = [Point(points_list[i]) for i in idxs] # -> All newly created points, including start-, end- and intermediate points of lines. Duplicates are already removed!
 
-    alljunctions                   = pd.DataFrame({'geometry' : points_new_list})
-    alljunctions                   = gp.GeoDataFrame(alljunctions, geometry = 'geometry')
+    alljunctions                   = gp.GeoDataFrame(geometry = points_new_list)
 
     # Identify all start- and endpoints BEFORE SPLITTING
     all_startpoints         = [(Point(pp.coords[0]).x, Point(pp.coords[0]).y) for pp in lines['geometry']]
@@ -217,8 +215,7 @@ def createUniqueJunctions(
 
     startendpoints = list(set(startpoints + endpoints))
 
-    junctions = gp.GeoDataFrame()
-    junctions.geometry = [Point(n) for n in startendpoints]
+    junctions = gp.GeoDataFrame(geometry = [Point(n) for n in startendpoints])
 
 
     return junctions, lines
@@ -1434,6 +1431,7 @@ def create_ppi_network_from_gdf(
             print(f'\n### Attention! desired modelling_type {modelling_type} requires provided feed line network. Aborting... ###\n')
             return
         
+        # Create basic network topology of pipes and junctions
         pipes, junctions = create_basic_network_topology(lines = pipes, split_lines = True)
 
         # Apply precision to line and point objects
@@ -1471,6 +1469,8 @@ def create_ppi_network_from_gdf(
                 connAttrBuildings = 'junction',
                 naming = ('distribution', 'houseConnection')
                 )
+            
+            print(f'\n### Pandapipes network pipes receive attribute "connectionType" to discriminate between "distribution" and "connection" pipes. ###')
             
         else:
             buildings_out = None
@@ -1609,36 +1609,3 @@ def create_ppi_network_from_gdf(
 
     
     return net
-
-def MST_gdf_subset(lines:gp.GeoDataFrame, weightMST:str = None, subsetNodesMST:gp.GeoDataFrame = None):
-
-    """
-    Function that creates minimum spanning tree from input geopandas.GeoDataFrame of line objects.
-
-    :param lines: geopandas.GeoDataFrame of line objects with attribute **weightMST** in columns.\n
-    :param weightMST: column name/attribute for weighting MST.\n
-    :param subsetNodesMST: geopandas.GeoDataFrame of point objects containing all obligatory points which shall be included in the MST representation.\n
-    :return: edited GeoDataFrame of line objectsas MST of input GeoDataFrame
-    """
-
-    # Create temporary copy
-    gdf = lines.copy()
-
-    # Create graph representation of line GeoDataFrame
-    G = momepy.gdf_to_nx(gdf, approach="primal")
-
-    if subsetNodesMST is not None:
-        arrA = np.array([np.round([x,y],3) for x,y in zip(subsetNodesMST.geometry.x, subsetNodesMST.geometry.y)])              
-        arrB = np.array(G.nodes)
-        MSTnodes = list(filter(None, set(tuple(closest_point(points = arrB, target = poin, threshDistance = 10)) for poin in arrA)))
-
-    else:
-        MSTnodes = None
-
-    Gout = MST_graph_subset(g = G, weight = weightMST, subsetNodes = MSTnodes)
-
-    # Convert networkx graph to GeoDataFrame
-    _, lines_out, _ = momepy.nx_to_gdf(Gout, points=True, lines=True, spatial_weights=True)
-    lines_out = lines_out[[col for col in lines_out.columns if col in lines.columns]]
-
-    return lines_out

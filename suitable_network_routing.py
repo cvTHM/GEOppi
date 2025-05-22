@@ -1380,39 +1380,6 @@ def MST_graph_subset(g:nx.graph, weight:str = None, subsetNodes:set = None):
 
     return gout
 
-def MST_gdf_subset(lines:gp.GeoDataFrame, weightMST:str = None, subsetNodesMST:gp.GeoDataFrame = None):
-
-    """
-    Function that creates minimum spanning tree from input geopandas.GeoDataFrame of line objects.
-
-    :param lines: geopandas.GeoDataFrame of line objects with attribute **weightMST** in columns.\n
-    :param weightMST: column name/attribute for weighting MST.\n
-    :param subsetNodesMST: geopandas.GeoDataFrame of point objects containing all obligatory points which shall be included in the MST representation.\n
-    :return: edited GeoDataFrame of line objectsas MST of input GeoDataFrame
-    """
-
-    # Create temporary copy
-    gdf = lines.copy()
-
-    # Create graph representation of line GeoDataFrame
-    G = momepy.gdf_to_nx(gdf, approach="primal")
-
-    if subsetNodesMST is not None:
-        arrA = np.array([np.round([x,y],3) for x,y in zip(subsetNodesMST.geometry.x, subsetNodesMST.geometry.y)])              
-        arrB = np.array(G.nodes)
-        MSTnodes = list(filter(None, set(tuple(closest_point(points = arrB, target = poin, threshDistance = 10)) for poin in arrA)))
-
-    else:
-        MSTnodes = None
-
-    Gout = MST_graph_subset(g = G, weight = weightMST, subsetNodes = MSTnodes)
-
-    # Convert networkx graph to GeoDataFrame
-    _, lines_out, _ = momepy.nx_to_gdf(Gout, points=True, lines=True, spatial_weights=True)
-    lines_out = lines_out[[col for col in lines_out.columns if col in lines.columns]]
-
-    return lines_out
-
 
 # %% *--- Minimal example for networkRouting algorithm ---*
 

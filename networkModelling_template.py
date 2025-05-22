@@ -10,10 +10,11 @@ import rasterio
 from pathlib import Path
 
 from auxFunctions import (get_dict_from_aggregated_groups)
-from create_network_topology import (create_ppi_network_from_gdf, MST_gdf_subset)
+from create_network_topology import (create_ppi_network_from_gdf, )
+from suitable_network_routing import (MST_gdf_subset, )
 from dimension_network_pipes import (update_ppi_results, assign_insulation_type, hydraulicDimensioningNetwork_singleLoadPoint, assign_nominal_widths_manually)
-from internal_auxFunctions import (extract_FluidProperties_ppi, transfer_LoadPoint_ppi, implement_controllers)
-from pandapipes.control import run_control
+from internal_auxFunctions import (extract_FluidProperties_ppi, transfer_LoadPoint_ppi, )
+
 
 from pipe_characteristics import load_hydraulic_pipe_characteristics
 

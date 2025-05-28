@@ -177,7 +177,7 @@ netFeed = transfer_LoadPoint_ppi(
 cp_fluid, rho_fluid, nu_fluid, g = extract_FluidProperties_ppi(net = netFeed, t = 0.5 * (tFeed + tReflux))
 
 # Adapt user defined options of the network to hydraulic and thermal calculation mode
-ppi.set_user_pf_options(net = netFeed, mode="hydraulics", friction_model = friction_model, quit_on_inconsistency_connectivity=True)
+ppi.set_user_pf_options(net = netFeed, mode="hydraulics", friction_model = friction_model, quit_on_inconsistency_connectivity=True, reset = True)
 
 netFeed = hydraulicDimensioningNetwork_singleLoadPoint(
     net = netFeed,
@@ -419,6 +419,9 @@ netFeedReflux = create_ppi_network_from_gdf(
     modelling_type = 'feed_and_reflux_line_circPumps'
 )
 
+# Set user-defined pipeflow option for sequential calculation!
+ppi.set_user_pf_options(net = netFeedReflux, mode="sequential", friction_model = friction_model, quit_on_inconsistency_connectivity=True, reset = True)
+
 netFeedReflux = transfer_LoadPoint_ppi(
     net = netFeedReflux,
     tFeed = tFeed + 273.15,
@@ -433,7 +436,6 @@ netFeedReflux = transfer_LoadPoint_ppi(
 
 netFeedReflux = update_ppi_results(
     net = netFeedReflux,
-    user_pf_options = {'mode':'sequential', 'friction_model':friction_model,'quit_on_inconsistency_connectivity':True},
     respectHeight=False,
     fluidProperties={'cp':cp_fluid, 'rho':rho_fluid, 'nu':nu_fluid},
     elongationFactorPipes=factor_l,

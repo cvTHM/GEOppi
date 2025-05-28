@@ -771,7 +771,7 @@ def update_ppi_results(
     
     ### Preparations
     net = net.deepcopy()
-    ppi.set_user_pf_options(net = net, reset = False, **user_pf_options)
+    ppi.set_user_pf_options(net = net, **user_pf_options)
 
     # Control of junction heights
     if respectHeight == False:

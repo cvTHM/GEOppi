@@ -171,7 +171,7 @@ def createUniqueJunctions(
     # A_new                       = np.array([(k.x, k.y) for k in points_list])
     A_new                       = np.array([(Point(k).x, Point(k).y) for k in points_list])
 
-    neighbours                  = nnearest(A_new, A_new, distance=0.1, n=10)
+    neighbours, _               = nnearest(A_new, A_new, distance=0.1, n=10)
 
     a                           = [tuple(sorted(list(l))) for l in neighbours]
     s                           = set(a) # -> Remove duplicate points
@@ -246,8 +246,8 @@ def assignJunctionsToLines(
     endpoints = [(np.round(Point(pp.coords[-1]).x,2), np.round(Point(pp.coords[-1]).y,2)) for pp in lines['geometry']]
 
     # Find closest junctions to start- and endpoints of lines within a distance of 0.02m
-    from_junction_idxs = nnearest(startpoints, all_junctions, distance = 0.02, n=1)
-    to_junctions_idxs = nnearest(endpoints, all_junctions, distance = 0.02, n=1)
+    from_junction_idxs, _ = nnearest(startpoints, all_junctions, distance = 0.02, n=1)
+    to_junctions_idxs, _ = nnearest(endpoints, all_junctions, distance = 0.02, n=1)
 
     lines[FromToAttributes[0]] = from_junction_idxs
     lines[FromToAttributes[1]] = to_junctions_idxs

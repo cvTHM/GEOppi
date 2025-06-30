@@ -68,7 +68,7 @@ def nnearest(A:np.array, B:np.array, distance:float=5, n:int=2)->np.array:
     btree = cKDTree(B)
     dist, idx = btree.query(A, k=n, distance_upper_bound=distance)
 
-    return (idx)
+    return (idx, dist)
 
 def split_lines_at_points(
         line, 

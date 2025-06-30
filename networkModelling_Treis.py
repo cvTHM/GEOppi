@@ -18,6 +18,31 @@ from pandapipes.control import run_control
 from pipe_characteristics import load_hydraulic_pipe_characteristics
 
 
+# %%
+
+
+net = ppi.from_pickle(r'Z:\13_Skizzen_Anträge_Projekte\15_Treis\output\network3\results\Treis3_netFeedReflux_dimensioned_manually.p')
+
+
+net.heat_consumer['demand_use_th'].sum()/1e03
+
+
+# %%
+
+net.pipe.loc[abs(net.pipe['mdot_from_kg_per_s']) < 1e-08, 'in_service'] = False
+
+net.pipe.loc[(net.pipe['in_service'] == True) & (net.pipe['connectionType'] == 'distribution') & (net.pipe['Layer'] == 'feedLine'), 'length_km'].sum()
+
+
+net.pipe[net.pipe['in_service'] == True].groupby(['nominalWidth', 'connectionType']).agg({'length_km':'sum'})/2
+
+import pandas as pd
+temp = pd.read_csv(r"C:\Users\const\Desktop\theta_modelica_Treis.txt", sep = ';', skiprows=1)
+
+data = temp['double theta(1824,2)'].to_numpy().repeat(24)[-8760:]
+
+pd.DataFrame(data = data).to_excel(r'C:\Users\const\Desktop\tempLumda.xlsx')
+
 
 # %% Load data
 

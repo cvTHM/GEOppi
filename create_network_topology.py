@@ -246,7 +246,7 @@ def assignJunctionsToLines(
     endpoints = [(np.round(Point(pp.coords[-1]).x,2), np.round(Point(pp.coords[-1]).y,2)) for pp in lines['geometry']]
 
     # Find closest junctions to start- and endpoints of lines within a distance of 0.02m
-    from_junction_idxs = nnearest(startpoints, all_junctions, distance = 0.02, n=1)
+    from_junction_idxs, _ = nnearest(startpoints, all_junctions, distance = 0.02, n=1)
     to_junctions_idxs, _ = nnearest(endpoints, all_junctions, distance = 0.02, n=1)
 
     lines[FromToAttributes[0]] = from_junction_idxs

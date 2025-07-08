@@ -10,7 +10,7 @@ import rasterio
 from pathlib import Path
 
 from auxFunctions import (get_dict_from_aggregated_groups)
-from create_network_topology import (create_ppi_network_from_gdf, MST_gdf_subset)
+from create_network_topology import (create_ppi_network_from_gdf,)
 from dimension_network_pipes import (update_ppi_results, assign_insulation_type, hydraulicDimensioningNetwork_singleLoadPoint, assign_nominal_widths_manually)
 from internal_auxFunctions import (extract_FluidProperties_ppi, transfer_LoadPoint_ppi, implement_controllers)
 from pandapipes.control import run_control
@@ -89,8 +89,8 @@ heatingDemandAttr = 'demand_use_th'
 networkType = 'KMR'
 
 ### Set temperatures in the network (°C)
-tFeed = 65
-tReflux = 40
+tFeed = 70
+tReflux = 45
 
 # Set network pressure at peak load producers (bar)
 pNetwork = 8
@@ -451,11 +451,13 @@ gp.GeoDataFrame(netFeedReflux.junction).set_crs(cs).to_file(flp_out / 'networkFe
 
 # %% *--- Controller creation and exemplified application ---*
 
-netFeedReflux = ppi.from_pickle(str(flp_out / name) + '_netFeedReflux_dimensioned_manually.p')
+# netFeedReflux = ppi.from_pickle(str(flp_out / name) + '_netFeedReflux_dimensioned_manually_new.p')
+netFeedReflux = ppi.from_pickle(r"D:\GitLab\paper_generic_network_creation\data\heatingNetwork_Herborn\results\Herborn_netFeedReflux_dimensioned_manually_controlled.p")
+
 cp_fluid, rho_fluid, nu_fluid, g = extract_FluidProperties_ppi(net = netFeedReflux, t = 0.5 * (tFeed + tReflux))
 
 # Initialize
-netFeedReflux.heat_consumer['Pth_kW'] = netFeedReflux.heat_consumer['demand_use_th'] / 1700 * 0.1
+netFeedReflux.heat_consumer['Pth_kW'] = netFeedReflux.heat_consumer['demand_use_th'] / 1700
 
 # Output DataFrames
 import pandas as pd
@@ -689,8 +691,8 @@ for nn, factorize in enumerate(np.linspace(0.1, 1, 10)):#enumerate([0.1, 0.5, 1]
     gp.GeoDataFrame(netFeedReflux.heat_consumer).set_crs(cs).to_file(flp_out / 'heat_consumers_heatDemand_variation.gpkg', layer = f'thermalPowerfactor{factorize:.1f}', driver = 'GPKG')
 
 
-# results.to_excel(flp_out / Path(f'results_heatDemand_variation_sf{sf:.2}.xlsx'))
-# np.save(flp_out / Path(f'results_heatDemand_variation_heatConsumers_sf{sf:.2}.npy'), resultsConsumers)
+results.to_excel(flp_out / Path(f'results_heatDemand_variation_sf{sf:.2}.xlsx'))
+np.save(flp_out / Path(f'results_heatDemand_variation_heatConsumers_sf{sf:.2}.npy'), resultsConsumers)
 
 print(f'\nLänge der Rohre (gesamt, geometry) = {np.nansum(gp.GeoDataFrame(netFeedReflux.pipe).geometry.length):.4} m')
 print(f'\nLänge der Rohre (gesamt, length) = {np.nansum(netFeedReflux.pipe["length_km"]*1000):.4} m')
@@ -752,8 +754,8 @@ ax.grid('minor')
 
 # Ax2
 ax2 = ax.twinx()
-line_c, = ax2.plot(data['partialLoad'], data['rel_th_loss'], color='red', label=r'$\frac{P_{th,loss}}{P_{th,dem}}$')
-line_d, = ax2.plot(data['partialLoad'], data['rel_pumping_power_el_incldpProducers'], color='red', linestyle = '-.', label=r'$\frac{P_{el,pump}}{P_{th,dem}}$')
+line_c, = ax2.plot(data['partialLoad'], data['rel_th_loss'], color='red', label=r'$\frac{\dot{Q}_{loss}}{\dot{Q}_{dem}}$')
+line_d, = ax2.plot(data['partialLoad'], data['rel_pumping_power_el_incldpProducers'], color='red', linestyle = '-.', label=r'$\frac{P_{el,pump}}{\dot{Q}_{dem}}$')
 
 ax2.set_ylim([0, 0.15])
 ax2.set_yticks(ax2.get_yticks(), labels = [str(tick) for tick in ax2.get_yticks()], **legendfont)
@@ -805,7 +807,7 @@ scat_return = ax_bottom2.scatter(
     zorder = 9
 )
 
-ax_bottom.set_xlabel(r'Rel. thermal demand load $\frac{P_{th,dem}}{P_{th,dem,max}}$', **xfont)
+ax_bottom.set_xlabel(r'Rel. thermal demand load $\frac{\dot{Q}_{dem}}{\dot{Q}_{dem,max}}$', **xfont)
 ax_bottom.set_xlim([0.05, 1.05])
 ax_bottom.set_ylim([0.2, 6])
 ax_bottomYticks = np.arange(7)
@@ -836,7 +838,7 @@ labels = lines_labels[-1] + lines_labels2[-1] + scat_labels2[-1] + scat_labels[-
 
 ax_bottom2.legend(handles, labels, loc='upper left', bbox_to_anchor = (1.125, 1.5), ncol = 1, prop = legendfont)
 
-# fig.savefig(flp_out / Path('fig_heatDemandLoad_variation.png'), dpi = 300, bbox_inches = 'tight')
+fig.savefig(flp_out / Path('fig_heatDemandLoad_variation.png'), dpi = 300, bbox_inches = 'tight')
 
 
 # %%

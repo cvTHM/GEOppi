@@ -33,7 +33,8 @@ def network_span_bfs(
         subsetNodesMST:gp.GeoDataFrame = None,
         removeDuplicateGraphs:bool = True,
         removeSmallNetworks:bool = True,
-        mergeTouchingGraphs:bool = True
+        mergeTouchingGraphs:bool = True,
+        returnAddResults:bool = False
     ):
 
 
@@ -114,10 +115,16 @@ def network_span_bfs(
 
     list_G = []
     orderDictList = []
+    SFList = []
+    usedEnergyBudgetList = []
+    usedPowerBudgetList = []
+    currentThermalLossFactorList = []
+    summedLengthList = []
+    avlineDensityList = []
 
     for nn, startLoc in enumerate(startLocs):
         print(f'\n### Network extension algorithm, startpoint {nn+1} of {len(startLocs)}.\n')
-        # res contains tuples of form (edge), ID, order for each edge added to the final graph
+        # res contains tuples of form (edge), ID, order for each edge added to the final graph ((edge), enum_ID, order, currentSF, usedEnergyBudget, usedPowerBudget, currentThermalLossFactor, summedLength, avAtt)
         res  = list(
             bfs_network_extension(
                 G = G,
@@ -142,6 +149,14 @@ def network_span_bfs(
 
         # Create dictionary for order of addition (values) to graph for each line segment ID (keys)
         orderDictList.append({r[1]:r[2] for r in reversed(res)})
+
+        # Gather additional results in lists
+        SFList.append([r[3] for r in res])
+        usedEnergyBudgetList.append([r[4] for r in res])
+        usedPowerBudgetList.append([r[5] for r in res])
+        currentThermalLossFactorList.append([r[6] for r in res])
+        summedLengthList.append([r[7] for r in res])
+        avlineDensityList.append([r[8] for r in res])
 
         list_G.append(G_add)
 
@@ -190,7 +205,11 @@ def network_span_bfs(
         else:
             edges_collector_gdf = pd.concat((edges_collector_gdf, edges))
     
-    return edges_collector_gdf, list_G
+    if returnAddResults:
+        return edges_collector_gdf, list_G, SFList, usedEnergyBudgetList, usedPowerBudgetList, currentThermalLossFactorList, summedLengthList, avlineDensityList
+    
+    else:
+        return edges_collector_gdf, list_G
 
 def bfs_network_extension(
         G:nx.graph,
@@ -330,13 +349,15 @@ def bfs_network_extension(
                         summedLength        = G_new.size(weight = lengthAttr)
                         summedHeatDemand    = G_new.size(weight = att_heatDemand)
                         summedB             = G_new.size(weight = att_nB) if att_nB is not None else G_new.size() # Number of edges if att_nB not existent
+                        avAtt               = summedHeatDemand/max(0.001, summedLength) # Average line density (MWh/m)
+
                         if att_pth is None:
                             summedPth      = G_new.size(weight = att_heatDemand / 1700)
                             print(f'"att_pth" is not provided in graph representation. It is calculated from {att_heatDemand}/1700. ###')
                         else:                            
                             summedPth           = G_new.size(weight = att_pth)
 
-                        currentThermalLossFactor = adaptThermalLoss(summedHeatDemand/max(1,summedLength)) if adaptThermalLoss is not None else 0
+                        currentThermalLossFactor = adaptThermalLoss(max(0, avAtt)) if adaptThermalLoss is not None else 0
                         summedHeatDemand *= (1+currentThermalLossFactor)
 
                         currentThermalPowerLossFactor = adaptThermalPowerLoss(summedPth / max(1, summedLength)) if adaptThermalPowerLoss is not None else 0
@@ -359,7 +380,7 @@ def bfs_network_extension(
                             potentialEdges.append(edge)
 
                             order += 1
-                            yield edge, enum_ID, order
+                            yield edge, enum_ID, order, currentSF, usedEnergyBudget, usedPowerBudget, currentThermalLossFactor, summedLength, avAtt
 
                         elif edge_att_ld <= max(minvalAttr_maxLength.keys()) and (eBudget - usedEnergyBudget) >= edge_att_hd * (1+currentThermalLossFactor) and ((pBudget - usedPowerBudget) >= currentSF * (1+currentThermalPowerLossFactor) * edge_att_pth or not considerPowerBudget): 
 
@@ -375,7 +396,7 @@ def bfs_network_extension(
                                 potentialEdges.append(edge)
 
                                 order += 1
-                                yield edge, enum_ID, order
+                                yield edge, enum_ID, order, currentSF, usedEnergyBudget, usedPowerBudget, currentThermalLossFactor, summedLength, avAtt
                         
                         else:
                             continue

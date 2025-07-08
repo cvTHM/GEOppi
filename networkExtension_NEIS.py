@@ -48,10 +48,10 @@ att_len = 'length'
 att_nB = 'nBuildsdemand_use_th'
 
 # Energy budget for production at defined starting points (MWh)
-energyBudget = [[22000, 10e04, 20000]]#[[8000, 10e04, 10000], [16000, 10e04, 20000], [22000, 10e04, 20000]]
+energyBudget = [[22000]]#, 10e04, 20000]]#[[8000, 10e04, 10000], [16000, 10e04, 20000], [22000, 10e04, 20000]]
 
 # Thermal power budget for production at defined starting points (MW)
-powerBudget = [[18, 12.5, 8]]#[[4, 12.5, 4], [8, 12.5, 8], [18, 12.5, 8]]
+powerBudget = [[18]]#, 12.5, 8]]#[[4, 12.5, 4], [8, 12.5, 8], [18, 12.5, 8]]
 
 # mindest Anzahl an Gebäuden pro ein Netz
 n_build = 17
@@ -66,21 +66,21 @@ sortByAttr = att_ld
 
 #     return 0.05
 
-# def simultaneity_DH(n:int, bottomLim:float = 0.7):
+def simultaneity_DH(n:int, bottomLim:float = 0.7):
 
-#     return 1
+    return 1
 
-# def relThermalLoss_DH(ld, referToInput:bool = False):
+def relThermalLoss_DH(ld, referToInput:bool = False):
 
-#     return 0.15
+    return 0.15
 
 for r, run in enumerate(powerBudget):
     
     starttime = time.time()
 
-    gdf_graphs, graphList = network_span_bfs(
+    gdf_graphs, graphList, SFList2, usedEnergyBudgetList2, usedPowerBudgetList2, currentThermalLossFactorList2, summedLengthList2, avlineDensityList2 = network_span_bfs(
         lines = lines,
-        startpoints = startpoints,
+        startpoints = startpoints.loc[[0]],
         val_Attr = att_ld,
         att_pth = att_pth,
         length_Attr = att_len,
@@ -96,7 +96,8 @@ for r, run in enumerate(powerBudget):
         adaptSimultaneityFactor = simultaneity_DH,
         adaptThermalPowerLoss = relThermalLossPower_DH,
         minvalAttr_maxLength = {-0.1:50},
-        createMST = False
+        createMST = False,
+        returnAddResults = True
     )
     endtime = time.time()
     timeElapsed = endtime - starttime
@@ -122,6 +123,77 @@ for r, run in enumerate(powerBudget):
     output_path = flp_out / Path(f'graphs_extension_2025_v2.gpkg')
 
     # gdf_graphs.to_file(output_path, layer = f'Pthprod1_{powerBudget[r][0]:.1f}MW_Pthprod2_{powerBudget[r][1]:.1f}MW_Pthprod3_{powerBudget[r][2]:.1f}MW', driver="GPKG")
+
+# %% *--- Template: Create plot over number of street segments in network extension analysis ---*
+
+# Plot appearance
+import matplotlib.pyplot as plt
+from matplotlib.ticker import FormatStrFormatter
+import numpy as np
+
+
+
+xfont = {'fontname': 'Times New Roman', 'fontsize':9}
+legendfont = {'family': 'Times New Roman', 'size': 9}
+
+fig, ax = plt.subplots(1, 1, sharex=True)
+fig.set_size_inches(3.22, 2, forward=True)
+fig.set_dpi(300)
+
+# Data
+x1 = summedLengthList1[0]
+x2 = summedLengthList2[0]
+
+ax2 = ax.twinx()
+
+# Plot SF
+ax.plot(x1, SFList1[0], color = '0.05', label = r'simultaneity factor sf', linestyle = '-')
+ax.plot(x2, SFList2[0], color = '0.05', label = r'simultaneity factor sf', linestyle = ':')
+
+# Plot used energy budget
+ax.plot(x1, np.array(usedEnergyBudgetList1[0])/22000, color = '0.3', label = r'proportion of used energy budget $\frac{Q_{dem}}{Q_{supply,potential}}$', linestyle = '-')
+ax.plot(x2, np.array(usedEnergyBudgetList2[0])/22000, color = '0.3', label = r'proportion of used energy budget $\frac{Q_{dem}}{Q_{supply,potential}}$', linestyle = ':')
+
+# Plot thermal energy losses
+ax.plot(x1, currentThermalLossFactorList1[0], color = '0.6', label = r'rel. thermal loss f$_{rel}$', linestyle = '-')
+ax.plot(x2, currentThermalLossFactorList2[0], color = '0.6', label = r'rel. thermal loss f$_{rel}$', linestyle = ':')
+
+# Plot av. line density
+ax2.plot(x1[1:], avlineDensityList1[0][1:], color = '0.9', label = r'average line density ld', linestyle = '-')
+ax2.plot(x2[1:], avlineDensityList2[0][1:], color = '0.9', label = r'average line density ld', linestyle = ':')
+
+
+# Set axes limits
+
+ax.set_yticks(ax.get_yticks(), labels = [str(tick) for tick in ax.get_yticks()], **legendfont)
+ax2.set_yticks(np.array([0, 1.5, 3, 4.5, 6]), labels = [str(tick) for tick in np.array([0, 1.5, 3, 4.5, 6])], **legendfont)
+
+ax.set_xlabel(r'Total trail length (m)', **xfont)
+axXticks = np.append(np.unique(np.arange(10)*1e03).round(0).astype(int), int(max(max(x1), max(x2))))
+ax.set_xticks(axXticks, labels = [str(np.round(tick/1e03, 1)) for tick in axXticks], **legendfont)
+
+ax.set_ylabel(r'sf; f$_{rel}$; $\frac{Q_{dem}}{Q_{supply,potential}}$', **xfont)
+ax2.set_ylabel(r'Line density ($\frac{MWh}{m}$)', **xfont)
+
+ax.set_xlim([0, max(max(x1), max(x2))])
+ax.set_ylim([0, 1.005])
+ax2.set_ylim([0, 6])
+
+ax.grid('minor')
+
+
+# Create legend
+lines_labels = ax.get_legend_handles_labels()
+lines_labels2 = ax2.get_legend_handles_labels()
+
+handles = lines_labels[0][0::2] + lines_labels2[0][0::2]
+labels = lines_labels[-1][0::2] + lines_labels2[-1][0::2]
+
+ax2.legend(handles, labels, loc='lower center', bbox_to_anchor = (0.5, -0.9), ncol = 1, prop = legendfont)
+
+fig.savefig(flp_out / Path('fig_networkExtension_variation.png'), dpi = 300, bbox_inches = 'tight')
+
+
 
 
 # %% *--- Template: Create animated visualization of development for network routing ---*

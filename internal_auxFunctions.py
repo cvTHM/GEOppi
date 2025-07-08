@@ -552,7 +552,8 @@ def relThermalLossPower_DH(
 
 def relThermalLoss_DH(
         ld:float,
-        referToInput = False
+        referToInput:bool = False,
+        minVal:float = 0.7
         )->float:
     
     """
@@ -569,7 +570,7 @@ def relThermalLoss_DH(
     a = -0.093815
     b = 0.169281
 
-    factor = a * np.log(ld) + b if ld else 0
+    factor = max(minVal, a * np.log(ld) + b if ld else 0)
     pThermalLoss = factor if referToInput else factor / (1-factor)    
     
     return pThermalLoss

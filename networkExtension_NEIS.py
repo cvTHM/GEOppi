@@ -13,7 +13,7 @@ from internal_auxFunctions import (simultaneity_DH, relThermalLoss_DH, relTherma
 
 # %% Load data
 
-flp = Path(r'D:\GitLab\paper_generic_network_creation\data\lineDensity')
+flp = Path(r'C:\GitLab\paper_generic_network_creation\data\lineDensity')
 flp_out = flp
 
 # Coordinate system
@@ -151,16 +151,16 @@ ax.plot(x1, SFList1[0], color = '0.05', label = r'simultaneity factor sf', lines
 ax.plot(x2, SFList2[0], color = '0.05', label = r'simultaneity factor sf', linestyle = ':')
 
 # Plot used energy budget
-ax.plot(x1, np.array(usedEnergyBudgetList1[0])/22000, color = '0.3', label = r'proportion of used energy budget $\frac{Q_{dem}}{Q_{supply,potential}}$', linestyle = '-')
-ax.plot(x2, np.array(usedEnergyBudgetList2[0])/22000, color = '0.3', label = r'proportion of used energy budget $\frac{Q_{dem}}{Q_{supply,potential}}$', linestyle = ':')
+ax.plot(x1, np.array(usedEnergyBudgetList1[0])/22000, color = '0.3', label = r'proportion of used energy budget $\frac{Q_{dem}+Q_{loss}}{Q_{supply,potential}}$', linestyle = '-')
+ax.plot(x2, np.array(usedEnergyBudgetList2[0])/22000, color = '0.3', label = r'proportion of used energy budget $\frac{Q_{dem}+Q_{loss}}{Q_{supply,potential}}$', linestyle = ':')
 
 # Plot thermal energy losses
 ax.plot(x1, currentThermalLossFactorList1[0], color = '0.6', label = r'rel. thermal loss f$_{rel}$', linestyle = '-')
 ax.plot(x2, currentThermalLossFactorList2[0], color = '0.6', label = r'rel. thermal loss f$_{rel}$', linestyle = ':')
 
 # Plot av. line density
-ax2.plot(x1[1:], avlineDensityList1[0][1:], color = '0.9', label = r'average line density ld', linestyle = '-')
-ax2.plot(x2[1:], avlineDensityList2[0][1:], color = '0.9', label = r'average line density ld', linestyle = ':')
+ax2.plot(x1[1:], avlineDensityList1[0][1:], color = '0.85', label = r'average line density ld', linestyle = '-')
+ax2.plot(x2[1:], avlineDensityList2[0][1:], color = '0.85', label = r'average line density ld', linestyle = ':')
 
 
 # Set axes limits
@@ -168,11 +168,11 @@ ax2.plot(x2[1:], avlineDensityList2[0][1:], color = '0.9', label = r'average lin
 ax.set_yticks(ax.get_yticks(), labels = [str(tick) for tick in ax.get_yticks()], **legendfont)
 ax2.set_yticks(np.array([0, 1.5, 3, 4.5, 6]), labels = [str(tick) for tick in np.array([0, 1.5, 3, 4.5, 6])], **legendfont)
 
-ax.set_xlabel(r'Total trail length (m)', **xfont)
+ax.set_xlabel(r'Total trail length (km)', **xfont)
 axXticks = np.append(np.unique(np.arange(10)*1e03).round(0).astype(int), int(max(max(x1), max(x2))))
 ax.set_xticks(axXticks, labels = [str(np.round(tick/1e03, 1)) for tick in axXticks], **legendfont)
 
-ax.set_ylabel(r'sf; f$_{rel}$; $\frac{Q_{dem}}{Q_{supply,potential}}$', **xfont)
+ax.set_ylabel('sf;' + '   ' + 'f$_{rel}$;' + '   ' + r'$\frac{Q_{dem}+Q_{loss}}{Q_{supply,potential}}$', **xfont)
 ax2.set_ylabel(r'Line density ($\frac{MWh}{m}$)', **xfont)
 
 ax.set_xlim([0, max(max(x1), max(x2))])
@@ -192,8 +192,6 @@ labels = lines_labels[-1][0::2] + lines_labels2[-1][0::2]
 ax2.legend(handles, labels, loc='lower center', bbox_to_anchor = (0.5, -0.9), ncol = 1, prop = legendfont)
 
 fig.savefig(flp_out / Path('fig_networkExtension_variation.png'), dpi = 300, bbox_inches = 'tight')
-
-
 
 
 # %% *--- Template: Create animated visualization of development for network routing ---*

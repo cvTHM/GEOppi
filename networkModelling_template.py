@@ -204,6 +204,15 @@ netFeed.pipe = assign_insulation_type(
     insulation_type = insulationType if networkType == 'KMR' else None
 )
 
+netFeed = update_ppi_results(
+    net = netFeed,
+    user_pf_options={'mode':'hydraulics', 'friction_model':'swamee-jain'},
+    respectHeight = False,
+    fluidProperties = {'rho':rho_fluid, 'cp':cp_fluid, 'nu':nu_fluid},
+    elongationFactorPipes = 1.3,
+    resultAttributes={ 'pipe': ['Pa_per_m', 'mdot_from_kg_per_s'],'junction': ['t_k', 'p_bar'] }
+)
+
 # %% *--- Optional: Intermediate plots ---*
 import matplotlib.pyplot as plt
 

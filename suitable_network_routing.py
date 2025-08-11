@@ -330,13 +330,15 @@ def bfs_network_extension(
                         summedLength        = G_new.size(weight = lengthAttr)
                         summedHeatDemand    = G_new.size(weight = att_heatDemand)
                         summedB             = G_new.size(weight = att_nB) if att_nB is not None else G_new.size() # Number of edges if att_nB not existent
+                        avAtt               = summedHeatDemand/max(0.001, summedLength) # Average line density (MWh/m)
+
                         if att_pth is None:
                             summedPth      = G_new.size(weight = att_heatDemand / 1700)
                             print(f'"att_pth" is not provided in graph representation. It is calculated from {att_heatDemand}/1700. ###')
                         else:                            
                             summedPth           = G_new.size(weight = att_pth)
 
-                        currentThermalLossFactor = adaptThermalLoss(summedHeatDemand/max(1,summedLength)) if adaptThermalLoss is not None else 0
+                        currentThermalLossFactor = adaptThermalLoss(max(0, avAtt)) if adaptThermalLoss is not None else 0
                         summedHeatDemand *= (1+currentThermalLossFactor)
 
                         currentThermalPowerLossFactor = adaptThermalPowerLoss(summedPth / max(1, summedLength)) if adaptThermalPowerLoss is not None else 0
@@ -350,24 +352,9 @@ def bfs_network_extension(
 
 
                         # Check if line density attribute is high enough for adding edge to graph
-                        if edge_att_ld > max(minvalAttr_maxLength.keys()) and (eBudget - usedEnergyBudget) >= edge_att_hd * (1+currentThermalLossFactor) and ((pBudget - usedPowerBudget) >= currentSF * (1+currentThermalPowerLossFactor) * edge_att_pth or not considerPowerBudget): 
+                        if edge_att_ld > max(minvalAttr_maxLength.keys()):
+                            if (eBudget - usedEnergyBudget) >= edge_att_hd * (1+currentThermalLossFactor) and ((pBudget - usedPowerBudget) >= currentSF * (1+currentThermalPowerLossFactor) * edge_att_pth or not considerPowerBudget): 
 
-                            visited_edges.add(edgeid)
-                            usedEnergyBudget = summedHeatDemand
-                            usedPowerBudget = summedPth
-
-                            potentialEdges.append(edge)
-
-                            order += 1
-                            yield edge, enum_ID, order
-
-                        elif edge_att_ld <= max(minvalAttr_maxLength.keys()) and (eBudget - usedEnergyBudget) >= edge_att_hd * (1+currentThermalLossFactor) and ((pBudget - usedPowerBudget) >= currentSF * (1+currentThermalPowerLossFactor) * edge_att_pth or not considerPowerBudget): 
-
-                            # Find first value in minvalAttr_maxLength which is higher than the line's line density
-                            nextid = list(map(lambda i: i > edge_att_ld, list(minvalAttr_maxLength.keys()))).index(True)
-                            selectedKey = list(minvalAttr_maxLength.keys())[nextid]
-
-                            if edge_att_length <= minvalAttr_maxLength[selectedKey]:
                                 visited_edges.add(edgeid)
                                 usedEnergyBudget = summedHeatDemand
                                 usedPowerBudget = summedPth
@@ -375,7 +362,24 @@ def bfs_network_extension(
                                 potentialEdges.append(edge)
 
                                 order += 1
-                                yield edge, enum_ID, order
+                                yield edge, enum_ID, order, currentSF, usedEnergyBudget, usedPowerBudget, currentThermalLossFactor, summedLength, avAtt
+
+                        elif edge_att_ld <= max(minvalAttr_maxLength.keys()):
+                            if (eBudget - usedEnergyBudget) >= edge_att_hd * (1+currentThermalLossFactor) and ((pBudget - usedPowerBudget) >= currentSF * (1+currentThermalPowerLossFactor) * edge_att_pth or not considerPowerBudget): 
+
+                                # Find first value in minvalAttr_maxLength which is higher than the line's line density
+                                nextid = list(map(lambda i: i > edge_att_ld, list(minvalAttr_maxLength.keys()))).index(True)
+                                selectedKey = list(minvalAttr_maxLength.keys())[nextid]
+
+                                if edge_att_length <= minvalAttr_maxLength[selectedKey]:
+                                    visited_edges.add(edgeid)
+                                    usedEnergyBudget = summedHeatDemand
+                                    usedPowerBudget = summedPth
+
+                                    potentialEdges.append(edge)
+
+                                    order += 1
+                                    yield edge, enum_ID, order, currentSF, usedEnergyBudget, usedPowerBudget, currentThermalLossFactor, summedLength, avAtt
                         
                         else:
                             continue

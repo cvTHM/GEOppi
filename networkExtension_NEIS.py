@@ -13,7 +13,7 @@ from internal_auxFunctions import (simultaneity_DH, relThermalLoss_DH, relTherma
 
 # %% Load data
 
-flp = Path(r'C:\GitLab\paper_generic_network_creation\data\lineDensity')
+flp = Path(r'D:\GitLab\paper_generic_network_creation\data\lineDensity')
 flp_out = flp
 
 # Coordinate system
@@ -29,6 +29,8 @@ lines               = gp.sjoin(left_df = lines, right_df = mask[['geometry']], h
 lines               = lines[~lines['index_right'].isna()].reset_index(drop = True).drop(columns = 'index_right')
 
 startpoints         = gp.read_file(flp / Path(r'startpointsProducers.gpkg')).to_crs(cs)
+
+backgroundLines = gp.read_file(flp / Path(r'Streets_LineDensity_bestand_renov_v1_cutBackground.gpkg')).to_crs(cs)
 
 ### Limits & attributes
 
@@ -48,10 +50,10 @@ att_len = 'length'
 att_nB = 'nBuildsdemand_use_th'
 
 # Energy budget for production at defined starting points (MWh)
-energyBudget = [[22000]]#, 10e04, 20000]]#[[8000, 10e04, 10000], [16000, 10e04, 20000], [22000, 10e04, 20000]]
+energyBudget = [[15000]]#, 10e04, 20000]]#[[8000, 10e04, 10000], [16000, 10e04, 20000], [22000, 10e04, 20000]]
 
 # Thermal power budget for production at defined starting points (MW)
-powerBudget = [[18]]#, 12.5, 8]]#[[4, 12.5, 4], [8, 12.5, 8], [18, 12.5, 8]]
+powerBudget = [[7]]#, 12.5, 8]]#[[4, 12.5, 4], [8, 12.5, 8], [18, 12.5, 8]]
 
 # mindest Anzahl an Gebäuden pro ein Netz
 n_build = 17
@@ -64,23 +66,23 @@ sortByAttr = att_ld
 # %% Start algorithm
 # def relThermalLossPower_DH(pd, referToInput:bool = False):
 
-#     return 0.05
+    # return 0.05
 
-def simultaneity_DH(n:int, bottomLim:float = 0.7):
+# def simultaneity_DH(n:int, bottomLim:float = 0.7):
 
-    return 1
+    # return 1
 
-def relThermalLoss_DH(ld, referToInput:bool = False):
+# def relThermalLoss_DH(ld, referToInput:bool = False):
 
-    return 0.15
+    # return 0.15
 
 for r, run in enumerate(powerBudget):
     
     starttime = time.time()
 
-    gdf_graphs, graphList, SFList2, usedEnergyBudgetList2, usedPowerBudgetList2, currentThermalLossFactorList2, summedLengthList2, avlineDensityList2 = network_span_bfs(
+    gdf_graphs, graphList, SFList1, usedEnergyBudgetList1, usedPowerBudgetList1, currentThermalLossFactorList1, summedLengthList1, avlineDensityList1 = network_span_bfs(
         lines = lines,
-        startpoints = startpoints.loc[[0]],
+        startpoints = startpoints.loc[[2]],
         val_Attr = att_ld,
         att_pth = att_pth,
         length_Attr = att_len,
@@ -95,7 +97,7 @@ for r, run in enumerate(powerBudget):
         adaptThermalLoss = relThermalLoss_DH,
         adaptSimultaneityFactor = simultaneity_DH,
         adaptThermalPowerLoss = relThermalLossPower_DH,
-        minvalAttr_maxLength = {-0.1:50},
+        minvalAttr_maxLength = {0.5:25},
         createMST = False,
         returnAddResults = True
     )
@@ -191,10 +193,11 @@ labels = lines_labels[-1][0::2] + lines_labels2[-1][0::2]
 
 ax2.legend(handles, labels, loc='lower center', bbox_to_anchor = (0.5, -0.9), ncol = 1, prop = legendfont)
 
-fig.savefig(flp_out / Path('fig_networkExtension_variation.png'), dpi = 300, bbox_inches = 'tight')
+# fig.savefig(flp_out / Path('fig_networkExtension_variation.png'), dpi = 300, bbox_inches = 'tight')
 
 
 # %% *--- Template: Create animated visualization of development for network routing ---*
+import numpy as np
 
 lines_final = gdf_graphs.copy()
 lines_final.sort_values(by = 'order', inplace = True, ascending = True)
@@ -206,14 +209,20 @@ lines_final['heat_Demand_cum'] = lines_final['heat_Demand'].cumsum()
 
 lines_final['ld_demand_use_th_mean_ordered'] = lines_final['heat_Demand_cum'] / lines_final['length_cum']
 
+lines_final['prop_usedEnergyBudget'] = np.array(usedEnergyBudgetList1[0][:74]) / 15000
+lines_final['prop_usedPowerBudget'] = np.array(usedPowerBudgetList1[0][:74]) / 7
+lines_final['SF'] = SFList1[0][:74]
+lines_final['Qloss_factor'] = currentThermalLossFactorList1[0][:74]
+
 
 animate_networkGeneration_gdf(
     gdf = lines_final,
     valAttr = 'ld_demand_use_th',
+    underlyinggdf = backgroundLines,
     cbarLabel = 'line density (MWh/m)',
-    cmapMinMax = (0, 5),
-    legendAttr = {'order ': 'order', 'mean ld (MWh/m) = ':'ld_demand_use_th_mean_ordered', 'current ld (MWh/m) = ':'ld_demand_use_th', 'summed length (m) = ':'length_cum'},
-    interval = 250,
+    cmapMinMax = (0, 3),
+    legendAttr = {'order =': 'order', 'av. ld (MWh/m) =':'ld_demand_use_th_mean_ordered', 'current ld (MWh/m) =':'ld_demand_use_th', 'network length (m) =':'length_cum', 'prop. used energy budget =':'prop_usedEnergyBudget', 'prop. used power budget =':'prop_usedPowerBudget','SF =':'SF'},
+    interval = 500,
     savePath=Path(r'C:\Users\const\Desktop\videos'),
     filename = 'video_bfs.gif'
 )

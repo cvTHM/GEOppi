@@ -49,6 +49,124 @@ def extractPointsFromLines(
 
     return pointsList, coordsList
 
+
+def detect_lines_in_narrow_passages(
+    lines:gp.GeoDataFrame,
+    polygons:gp.GeoDataFrame,
+    threshDistance:float = 10,
+    distPointsCircumference:float = 1,
+    nNeighbours:int = 10,
+    col:str = 'narrowPassage' 
+    )->gp.GeoDataFrame:
+
+    """
+    Function that marks line objects if they are positioned between polygons with smaller distance than defined thresh value.\n
+
+    :param lines: geopandas.GeoDataFrame with line objects (e.g. streets, ...).\n
+    :param polygons: geopandas.GeoDataFrame with polygon objects (e.g. buildings, ...).\n
+    :param threshDistance: float denoting the defined minimum distance between polygon outer boundaries between which lines are marked.\n
+    :param distPointsCircumference: float denoting the distance of points that are created along the boundaries of polygons (!Affects quality of the result!).\n
+    :param nNeighbours: integer denoting the number of neighbouring points to search within the defined thresh distance (!Affects quality of the result!).\n
+    :param col: string denoting the column name in which either False (line not within minimum diastance in passage) or True is entered for original line objects.\n
+
+    :return: geopandas.GeoDataFrame of line objects with additional column *col*
+    """
+
+    # Imports
+    import libpysal
+    import numpy as np
+    from shapely import LineString
+
+    # Plausibility checks
+    nNeighbours = max(1, nNeighbours)
+
+    cs = lines.crs
+
+    # Definitions
+    def qweights_wrapper(df, col : str = None):
+
+        if col is None:
+            col = 'qweights'
+
+        # testing: This does broadcast
+        # queen_weights = libpysal.weights.Queen.from_dataframe(df)
+        # return (queen_weights.component_labels + df.index[0]).astype(int)
+
+        # ... maybe this does?
+        queen_weights = libpysal.weights.Queen.from_dataframe(df)
+        df[col] = (queen_weights.component_labels + df.index[0]).astype(int)
+        return df
+
+
+    def create_points_along_boundary(polygon, dist:float = 1):
+
+        """
+        Function creating circumferential points along boundary of a polygon object.\n
+
+        :param polygon: shapely.Polygon object.\n
+        :param dist: float denoting the desired distance between circumferential points along boundary to create.\n
+
+        :return: list of points along boundary of the polygon
+        """
+
+        boundary = polygon.boundary
+        if boundary.length == 0:
+            return []
+        
+        numPoints = int(boundary.length // dist)
+        return [(np.round(boundary.interpolate(ii * dist).x, 2), np.round(boundary.interpolate(ii * dist).y, 2)) for ii in range(numPoints+1)]
+           
+    ## Data preparation
+    # Merge all touching/overlapping polygons to reduce number of processed polygons
+    print(f'\n... Merging touching/overlapping polygons\n')
+    polygons = qweights_wrapper(polygons, col = 'qWeight')
+    polygons = polygons.dissolve(by = 'qWeight', aggfunc = 'first')
+
+    # Create circumferenital points along boundary of polygons
+    all_points = [create_points_along_boundary(poly, dist = distPointsCircumference) for poly in polygons.geometry]
+
+    # Initialize container for shortest line objects between neighbouring points
+    shortestLines = []
+
+    ## Start looping through all points
+    for n, pts in enumerate(all_points):
+
+        # Initialize container for lines for each polygon
+        singleLines = []
+
+        # Exclude points belonging to the same polygon from the search for neighbours
+        otherpts = [pt for j in range(len(all_points)) if j != n for pt in all_points[j]]
+        lOthers = len(otherpts)
+
+        if lOthers > 0:
+            idx, _ = nnearest(A = np.array(pts), B = np.array(otherpts), distance = threshDistance, n = nNeighbours)
+
+            for nn, p in enumerate(idx):
+                singleLines.append( [(pts[nn], otherpts[ix]) for ix in p if ix < lOthers] )
+                singleLines = [b for b in singleLines if b]
+
+            shortestLines.append(singleLines)
+
+    # Flatten list of lines
+    shortestLines = [x for xs in shortestLines for x in xs]
+    shortestLineObjects = gp.GeoDataFrame(geometry = [LineString(coords) for ls in shortestLines for coords in ls])
+    shortestLineObjects.set_crs(cs, inplace = True)
+    
+    # Order all geometries in canonical form and drop duplicates (Connecting lines feature only one start- and one endpoint)
+    shortestLineObjects['geometry'] = shortestLineObjects.normalize()
+    shortestLineObjects.drop_duplicates()
+
+    # Transfer results to output DF of lines
+    lines = lines.copy()
+    lines = lines.sjoin(shortestLineObjects, how = 'left', predicate = 'intersects')
+    idxs = lines[~lines['index_right'].isna()].drop_duplicates(subset = 'geometry').index
+
+    lines[col] = False
+    lines.loc[idxs, col] = True
+
+
+    return lines
+
 def nnearest(A:np.array, B:np.array, distance:float=5, n:int=2)->np.array:
     
     """

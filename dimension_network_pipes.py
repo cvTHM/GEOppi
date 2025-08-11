@@ -732,6 +732,7 @@ def check_for_cycle(
 
     # Assign cycle number of the cycle with the highest summed weight to all contained edges
     if assign_cycle_affiliation == True:
+        ppi_network.pipe['loop'] = None
         for n, c in enumerate(cyclelist_sorted):
             ppi_network.pipe.loc[(ppi_network.pipe['from_junction'].isin(c) & ppi_network.pipe['to_junction'].isin(c)), 'loop'] = n
 

@@ -171,7 +171,7 @@ def createUniqueJunctions(
     # A_new                       = np.array([(k.x, k.y) for k in points_list])
     A_new                       = np.array([(Point(k).x, Point(k).y) for k in points_list])
 
-    neighbours, _               = nnearest(A_new, A_new, distance=0.1, n=10)
+    neighbours, _                = nnearest(A_new, A_new, distance=0.1, n=10)
 
     a                           = [tuple(sorted(list(l))) for l in neighbours]
     s                           = set(a) # -> Remove duplicate points

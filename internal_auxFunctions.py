@@ -553,7 +553,7 @@ def relThermalLossPower_DH(
 def relThermalLoss_DH(
         ld:float,
         referToInput:bool = False,
-        minVal:float = 0.7
+        minVal:float = 0.01
         )->float:
     
     """
@@ -671,13 +671,17 @@ def animate_networkGeneration_gdf(
         gdf:gp.GeoDataFrame,
         legendAttr:dict = {'level':'level'},
         valAttr:str = 'demand_use_th',
-        plotOriginalgdf:bool = True,
+        underlyinggdf:gp.GeoDataFrame = None,
         cbarLabel:str = 'heat demand (MWh)',
+        legendfont:dict = None,
+        cbarfont:dict = None,
         cmap = plt.cm.RdYlGn_r,
         cmapMinMax:tuple = None,
         interval:float = 400,
         savePath:Path = None,
-        filename:str = 'video.gif' 
+        filename:str = 'video.gif',
+        dpi:int = 300,
+        figsize:tuple = (1920/300, 1080/300)
     ):
 
 
@@ -689,7 +693,7 @@ def animate_networkGeneration_gdf(
     :param orderAttr: str denoting atribute name by which to define the plotting order.\n
     :param legendattr: dictionary of strings with keys being the strings shown in the legend and values being the attribute names where values in **gdf** are stored.\n
     :param valAttr: str denoting atribute name by which to define colorbar and to which to assign colormap.\n
-    :param plotOriginalgdf: boolean denoting whether complete **gdf** geometry data shall be plotted in the background.\n
+    :param underlyinggdf: gdf of data which shall be plotted as underlying data.\n
     :param cbarLabel: str denoting the colorbar label.\n
     :param cmap: matplotlib colormap object. Defaults to plt.cm.RdYlGn_r.\n
     :param cmapMinMax: tuple of floats defining the colorbar range. Refers to **valAttr**. Default to found (min, max) values in **gdf**\n
@@ -704,8 +708,14 @@ def animate_networkGeneration_gdf(
         cmapMinMax = (np.nanmin(gdf[valAttr]), np.nanmax(gdf[valAttr]))
     
     # Initialize plotting figure
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize = figsize, dpi = dpi)
     ax.set_axis_off()
+
+    if legendfont is None:
+        legendfont = {'family': 'Times New Roman', 'size': 10}
+
+    if cbarfont is None:
+        cbarfont = {'labelfontfamily': 'Times New Roman', 'labelsize': 10}
 
     # Create container for single frames
     frames = []
@@ -714,15 +724,15 @@ def animate_networkGeneration_gdf(
     nodeCollections = []
 
     # Plot original (complete) graph
-    if plotOriginalgdf:
-        edgeArtist_orig = gdf.plot(
+    if underlyinggdf is not None:
+        edgeArtist_orig = underlyinggdf.plot(
                 ax = ax,
                 column = valAttr, 
-                vmin = 0, 
-                vmax = 5,
+                vmin = cmapMinMax[0], 
+                vmax = cmapMinMax[1],
                 linewidth = 1,
                 alpha = 0.5,
-                cmap = plt.cm.RdYlGn_r,
+                cmap = cmap,
                 zorder = 0
                 )
     
@@ -744,11 +754,15 @@ def animate_networkGeneration_gdf(
         # Create colorbar
         if nn == 1:                
             cbar = fig.colorbar(edgeArtist.collections[0], ax=ax, location='right')
-            cbar.set_label(cbarLabel)
+            cbar.set_label(cbarLabel, **legendfont)
+            cbar.ax.tick_params(**cbarfont)
+
+        werte = [row[v] if type(row[v]) == float else str(row[v]) for k,v in legendAttr.items()]
+        max_len = max([len(f"{w:.3f}" if isinstance(w, float) else str(w)) for w in werte])
         
         legString = []
         for k,v in legendAttr.items():
-            legString.append(f'{k} = {row[v]:.3}') if type(row[v]) == float else legString.append(f'{k} = {row[v]}')
+            legString.append(f'{k} {row[v]:>{max_len}.3}') if type(row[v]) == float else legString.append(f'{k} {str(row[v]):>{max_len}}')
 
         legString_final = '\n'.join(legString)
 
@@ -758,7 +772,8 @@ def animate_networkGeneration_gdf(
             xycoords="figure fraction",
             va="top", 
             ha="left",
-            bbox=dict(boxstyle="round", fc="w")
+            bbox=dict(boxstyle="round", fc="w"),
+            **legendfont
             )
         
         # Gather all artiosts within axes
@@ -779,7 +794,7 @@ def animate_networkGeneration_gdf(
             print(f'### New directory for saving visualization videos is created in {savePath} ###')
 
         ani = matplotlib.animation.ArtistAnimation(fig=fig, artists=frames, interval=interval)
-        ani.save(filename=savePath / Path(filename), writer="pillow")
+        ani.save(filename=savePath / Path(filename), writer="pillow", dpi = dpi)
 
 
     return

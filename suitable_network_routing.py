@@ -7,7 +7,7 @@ import numpy as np
 import networkx as nx
 import momepy
 
-from auxFunctions import (closest_point, )
+from auxFunctions import (closest_point, sort_with_permutation,)
 
 ### BFS ###
 def network_span_bfs(
@@ -65,6 +65,7 @@ def network_span_bfs(
     :param removeSmallNetworks: boolean switch if postprocessing function shall be applied which removes graphs that are too small (refering to attribute att_nB and threshold min_nB).\n
     :param mergeTouchingGraphs: boolean switch if postprocessing function shall be applied which merges touchign graphs and removes duplicate edges.\n
     :param returnAddResults: boolean switch if additional results from the BFS algorithm shall be returned (SFList, usedEnergyBudgetList, usedPowerBudgetList, currentThermalLossFactorList, summedLengthList, avlineDensityList).\n
+    :param reduceInputGraphMultipleStartpoints: boolean switch to control if subgraphs of already chosen edges shall be removed from the original graph before it is passed to the next starting location (for multiple starting locations only).\n
     
     :returns: edges of graph resulting from breadth-first-search algorithm
     
@@ -174,12 +175,12 @@ def network_span_bfs(
         if reduceInputGraphMultipleStartpoints:
             G_start = cut_graph_to_edgelist(G = G_start, edgelist = [ed[0] for ed in res], keySensitive = True, reverseSelection = True)
 
-    list_G_unedited = list_G.copy()
+    # list_G_unedited = list_G.copy()
+    # print(f'no. of edges in unedited graph = {len(list(list_G_unedited[0].edges))}')
+    # print(f'no. of edges in graph = {len(list(list_G[0].edges))}')
 
-    # Keep only the biggest subgraph to avoid hydraulically unconnected network partitions
-    list_G = get_biggest_coherent_subgraph(graphList = list_G)
-
-    # Deletion of graphs which are identical
+    # Deletion of graphs which are identical or subgraphs of each other
+    # list_G is sorted in descending order from the biggest graph. If any subsequent graph is a complete subgraph (a duplicate), it will become empty. The permutation order of sorting is returned as well to keep consistency to the input order of starting locations.
     if removeDuplicateGraphs:
         list_G = remove_duplicate_graphs(graphList = list_G)
 
@@ -206,7 +207,7 @@ def network_span_bfs(
         nodes, edges, sw = momepy.nx_to_gdf(G_b, points=True, lines=True, spatial_weights=True)
         edges = edges[[col for col in edges.columns if col in list(lines.columns) + ['order']]]
 
-        # Assigfn additional columns
+        # Assign additional columns
         edges['network_ID'] = n
 
         # Correct enumeration_ID for lines added in postprocessing
@@ -248,7 +249,7 @@ def bfs_network_extension(
     Function to create spanned tree/network based on a defined energy budget that can be distributed from a chosen starting point.
     Breadth-first-search-based algorithm.
 
-    :param G: networkx.graph object containign all edges and nodes that can possibly be part of the output graph and shall be searched.\n
+    :param G: networkx.graph object containing all edges and nodes that can possibly be part of the output graph and shall be searched.\n
     :param start: Tuple of (x,y) point values for starting point of search.\n
     :param val_Attr: Edge attribute containing length-specific information (e.g. line density).\n
     :param att_pth: Edge attribute containting information on summed heating power on line segments (MW).\n
@@ -298,7 +299,6 @@ def bfs_network_extension(
     def edges_from(node):
         return iter(G.edges(node, **kwds))
 
-
     if directed:
         def edge_id(edge):
             # remove direction indicator
@@ -331,6 +331,10 @@ def bfs_network_extension(
 
     potentialEdges = []
 
+    # Plausibility checks
+    if att_pth is None:
+        print(f'"att_pth" is not provided in graph representation. It is calculated from {att_heatDemand}/1700. ###')
+
 
 
     while queue and (usedEnergyBudget <= eBudget) and (usedPowerBudget <= pBudget or not considerPowerBudget):
@@ -346,7 +350,9 @@ def bfs_network_extension(
 
             edgeid = edge_id(edge)
 
-            if edgeid not in visited_edges:
+            # Check if edge has not been visited yet (key-sensitive)
+            # and check if current edge shares at least one common node with the set of potential edges (output graph) to ensure coherence of the output graph
+            if (edgeid not in visited_edges) and (not any(potentialEdges) or any(set(edge[:-1]) & set(b for e in potentialEdges for b in e[:-1]))):
 
                 ### Loop over each keys of child -> Necessary to identify self-loops            
                 for key in list(G[parent][child].keys()):
@@ -356,36 +362,36 @@ def bfs_network_extension(
                         edge_att_length    = G[parent][child].get(key, {}).get(lengthAttr)
                         edge_att_hd        = G[parent][child].get(key, {}).get(att_heatDemand) if att_heatDemand is not None else edge_att_ld*edge_att_length
                         edge_att_pth       = G[parent][child].get(key, {}).get(att_pth) if considerPowerBudget else 0
-                        enum_ID      = G[parent][child].get(key, {}).get(enumeration_ID)
+                        enum_ID            = G[parent][child].get(key, {}).get(enumeration_ID)
 
                         ### Calculate statistics in current partial graph
-                        G_new               = cut_graph_to_edgelist(G = G, edgelist = potentialEdges)
-                        summedLength        = G_new.size(weight = lengthAttr)
-                        summedHeatDemand    = G_new.size(weight = att_heatDemand)
+                        G_new               = cut_graph_to_edgelist(G = G, edgelist = potentialEdges, keySensitive = True)
+                        summedLength        = G_new.size(weight = lengthAttr) # summed network length
+                        summedHeatDemand    = G_new.size(weight = att_heatDemand) # summed heat demand (without losses)
                         summedB             = G_new.size(weight = att_nB) if att_nB is not None else G_new.size() # Number of edges if att_nB not existent
                         avAtt               = summedHeatDemand/max(0.001, summedLength) # Average line density (MWh/m)
 
                         if att_pth is None:
-                            summedPth      = G_new.size(weight = att_heatDemand / 1700)
-                            print(f'"att_pth" is not provided in graph representation. It is calculated from {att_heatDemand}/1700. ###')
+                            summedPth      = G_new.size(weight = att_heatDemand / 1700)                            
                         else:                            
-                            summedPth           = G_new.size(weight = att_pth)
+                            summedPth      = G_new.size(weight = att_pth) # Summed thermal power demand (no losses)
 
                         currentThermalLossFactor = adaptThermalLoss(max(0, avAtt)) if adaptThermalLoss is not None else 0
-                        summedHeatDemand *= (1+currentThermalLossFactor)
+                        summedHeatDemand *= (1+currentThermalLossFactor) # summed heat demand (incl. losses)
 
                         currentThermalPowerLossFactor = adaptThermalPowerLoss(summedPth / max(1, summedLength)) if adaptThermalPowerLoss is not None else 0
                         currentSF = adaptSimultaneityFactor(summedB) if adaptSimultaneityFactor is not None else 1
 
-                        summedPth *= (currentSF * (1+currentThermalPowerLossFactor))
+                        summedPth *= (currentSF * (1+currentThermalPowerLossFactor)) # summed thermal power demand (incl. losses)
 
                         # print('Current thermal loss factor = '+str(currentThermalLossFactor))
                         # print('Current simultaneity factor = '+str(currentSF))
                         # print('PTh = '+str(summedPth))
 
-
                         # Check if line density attribute is high enough for adding edge to graph
                         if edge_att_ld > max(minvalAttr_maxLength.keys()):
+
+                            # Check if energy budget and power budget are not exhausted
                             if (eBudget - usedEnergyBudget) >= edge_att_hd * (1+currentThermalLossFactor) and ((pBudget - usedPowerBudget) >= currentSF * (1+currentThermalPowerLossFactor) * edge_att_pth or not considerPowerBudget): 
 
                                 visited_edges.add(edgeid)
@@ -419,7 +425,7 @@ def bfs_network_extension(
 
 
     ### Calculate statistics in final graph
-    G_new               = cut_graph_to_edgelist(G = G, edgelist = potentialEdges)
+    G_new               = cut_graph_to_edgelist(G = G, edgelist = potentialEdges, keySensitive = True)
     summedLength        = G_new.size(weight = lengthAttr)
     summedHeatDemand    = G_new.size(weight = att_heatDemand)
     summedB             = G_new.size(weight = att_nB) if att_nB is not None else G_new.size() # Number of edges if att_nB not existent
@@ -1187,37 +1193,53 @@ def remove_duplicate_graphs(graphList:list):
     
     # Initialize list of unique graphs 
     unique_graphs = []
+    unique_graph_indices = []
     
     # Initialize stack of sorted graphs from list
-    stack = sorted(graphList, key=lambda graph: len(graph.edges(keys=True, data = True)),reverse=True)
+    # stack = sorted(graphList, key=lambda graph: len(graph.edges(keys=True, data = True)), reverse=True)
+    perm, stack = sort_with_permutation(lst = graphList, key = lambda x: len(x[1].edges(keys=True, data = True)), reverse = True)
+  
+    
+
 
     while stack:
         
         # Current graph
         curr_graph = stack[0]
-    
+        original_idx = perm[len(unique_graphs)]        
+
         # Append to list of unique graphs
         unique_graphs.append(curr_graph)
+        unique_graph_indices.append(original_idx)
         
-        # other grpahs to compare to
-        list_comp_graphs = stack[1:] # Liste rumdrehen
+        # other graphs to compare to
+        list_comp_graphs = stack[1:] # Reverse list
+        comp_indices = perm[len(unique_graphs):]
        
         # empty stack
         stack = []
+        perm_rest = []
         
         # Loop through all other graphs to compare to
-        for comp_graph in list_comp_graphs:
+        for n, comp_graph in enumerate(list_comp_graphs):
             
             # Get edges of current graph and graph to compare to
-            edges_cur_set = set(curr_graph.edges(keys=True)) # aktuell
-            edges_com_set = set(comp_graph.edges(keys=True)) # vergleich
+            edges_cur_set = set(curr_graph.edges(keys=True))
+            edges_com_set = set(comp_graph.edges(keys=True))
             
             merged_set = edges_cur_set | edges_com_set
             
             # If set of edges is equal, then identical graphs or subgraph
-            if not len(merged_set) == len(edges_cur_set): stack.append(comp_graph)
+            if not len(merged_set) == len(edges_cur_set):
+                stack.append(comp_graph)
+                perm_rest.append(comp_indices[n])
+
+        perm = perm[:len(unique_graphs)] + perm_rest
+
+        
+    restore_order = sorted(zip(unique_graph_indices, unique_graphs), key=lambda x: x[0])    
                 
-    return unique_graphs
+    return [g for i, g in restore_order]
 
 def merge_touching_graphs(graphList:list, G:nx.graph):
 

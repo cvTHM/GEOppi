@@ -52,10 +52,10 @@ att_len = 'length'
 att_nB = 'nBuildsdemand_use_th'
 
 # Energy budget for production at defined starting points (MWh)
-energyBudget = [[10e04]]#, 10e04]]#[[8000, 10e04, 10000], [16000, 10e04, 20000], [22000, 10e04, 20000]]
+energyBudget = [[22e03, 10e04]]#, 10e04]]#[[8000, 10e04, 10000], [16000, 10e04, 20000], [22000, 10e04, 20000]]
 
 # Thermal power budget for production at defined starting points (MW)
-powerBudget = [[12.5]]#, 12.5]]#, 12.5, 8]]#[[4, 12.5, 4], [8, 12.5, 8], [18, 12.5, 8]]
+powerBudget = [[18, 12.5]]#, 12.5]]#, 12.5, 8]]#[[4, 12.5, 4], [8, 12.5, 8], [18, 12.5, 8]]
 
 # mindest Anzahl an Gebäuden pro ein Netz
 n_build = 17
@@ -67,22 +67,40 @@ sortByAttr = att_ld
 
 # %% Scratch
 
-redGraphs = gp.read_file(Path(r'C:\Users\Voelzel\Desktop\tempRes\graphs_extension_2025_v2_reducedInputGraph.gpkg'))
+redGraphs = gp.read_file(Path(r'C:\Users\Voelzel\Desktop\tempRes\graphs_extension_2025_v2_OnlyProd2.gpkg'))
 
 # %% Scratch
+
+redGraphs = gdf_graphs.copy()
 
 avLD = redGraphs['demand_use_th'].sum() / redGraphs.geometry.length.sum()
 
 Qloss = relThermalLoss_DH(avLD)*redGraphs['demand_use_th'].sum()
-Qdem = (Qloss + redGraphs['demand_use_th'].sum())/(1e03)
+Qdem = (Qloss + redGraphs['demand_use_th'].sum())
 
 Pdem = redGraphs['p_use_th'].sum() * 0.7
 
 print(f'\n Pdem = {Pdem} MW')
-print(f'\n Qdem = {Qdem} MWh')
+print(f'\n Psupply = {12.5+18} MW')
 
-print(f'\n Qsupply = {10e04 + 22000} MWh')
-print(f'\n Psupply = {18+12.5} MW')
+print(f'\n Qdem = {Qdem} MWh')
+print(f'\n Qsupply = {10e04+22e03} MWh')
+
+# %%
+
+avLD = redGraphs.loc[redGraphs['network_ID'] == 0, 'demand_use_th'].sum() / redGraphs.loc[redGraphs['network_ID'] == 0, 'geometry'].length.sum()
+
+Qloss = relThermalLoss_DH(avLD)*redGraphs.loc[redGraphs['network_ID'] == 0,'demand_use_th'].sum()
+Qdem = (Qloss + redGraphs.loc[redGraphs['network_ID'] == 0,'demand_use_th'].sum())
+
+Pdem = redGraphs.loc[redGraphs['network_ID'] == 0,'p_use_th'].sum() * 0.7
+
+print(f'\n Pdem = {Pdem} MW')
+print(f'\n Psupply = {18} MW')
+
+print(f'\n Qdem = {Qdem} MWh')
+print(f'\n Qsupply = {22e03} MWh')
+
 
 
 # %% Start algorithm
@@ -104,7 +122,7 @@ for r, run in enumerate(powerBudget):
 
     gdf_graphs, graphList, SFList1, usedEnergyBudgetList1, usedPowerBudgetList1, currentThermalLossFactorList1, summedLengthList1, avlineDensityList1 = network_span_bfs(
         lines = lines,
-        startpoints = startpoints.loc[[1]],
+        startpoints = startpoints.loc[:1],
         val_Attr = att_ld,
         att_pth = att_pth,
         length_Attr = att_len,
@@ -119,11 +137,13 @@ for r, run in enumerate(powerBudget):
         adaptThermalLoss = relThermalLoss_DH,
         adaptSimultaneityFactor = simultaneity_DH,
         adaptThermalPowerLoss = relThermalLossPower_DH,
-        minvalAttr_maxLength = {0.5:25},
+        minvalAttr_maxLength = {-0.1:25},
         createMST = False,
+        mergeTouchingGraphs = True,
         returnAddResults = True,
         reduceInputGraphMultipleStartpoints = True
     )
+
     endtime = time.time()
     timeElapsed = endtime - starttime
     print(f'\n### Time elapsed for algorithm is {timeElapsed:.2} seconds ###')
@@ -140,15 +160,14 @@ for r, run in enumerate(powerBudget):
     # Export
     if not os.path.exists(flp_out):
         os.makedirs(flp_out)
-        print('### New directory for storing results is created! ###')
+        print(f'### New directory for storing results is created! ###')
 
     # Save edges
     # output_path = flp_out / Path(f'graphs_extension_2025_v3_relLoss0p05_relLoss0p15_simultaneity1.gpkg')
-    output_path = flp_out / Path(f'graphs_extension_2025_v2_OnlyProd2.gpkg')
+    output_path = flp_out / Path(f'graphs_extension_2025_v2_minLengthminus0p1_CoherenceCheck_unmerged.gpkg')
 
     # gdf_graphs.to_file(output_path, layer = f'Pthprod1_{powerBudget[r][0]:.1f}MW_Pthprod2_{powerBudget[r][1]:.1f}', driver="GPKG")
 
-    gdf_graphs.to_file(output_path, layer = f'Pthprod1_{powerBudget[r][0]:.1f}', driver="GPKG")
 
 # %% *--- Template: Create plot over number of street segments in network extension analysis ---*
 

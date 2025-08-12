@@ -167,6 +167,27 @@ def detect_lines_in_narrow_passages(
 
     return lines
 
+
+def sort_with_permutation(lst:list, key, **kwargs):
+
+    """
+    Function that applies sorting to a list and returns sorted list and permutation order of this sorted list.\n
+
+    :param lst: list to be sorted.\n
+    :param key: function-like definition fopr which key to sort the list.\n
+    :param kwargs: kwargs passed to sorted(...)., e.g. "reverse = True"\n
+
+    :return: permutation order, sorted list
+    """
+
+    indexed = list(enumerate(lst))
+    sorted_indexed = sorted(indexed, key = key, **kwargs)
+    perm = [i for i, _ in sorted_indexed]
+    sorted_lst = [val for _, val in sorted_indexed]
+    
+    return perm, sorted_lst
+
+
 def nnearest(A:np.array, B:np.array, distance:float=5, n:int=2)->np.array:
     
     """

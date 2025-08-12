@@ -7,7 +7,7 @@ import numpy as np
 import networkx as nx
 import momepy
 
-from auxFunctions import (closest_point, )
+from auxFunctions import (closest_point, sort_with_permutation,)
 
 ### BFS ###
 def network_span_bfs(
@@ -34,7 +34,8 @@ def network_span_bfs(
         removeDuplicateGraphs:bool = True,
         removeSmallNetworks:bool = True,
         mergeTouchingGraphs:bool = True,
-        returnAddResults:bool = False
+        returnAddResults:bool = False,
+        reduceInputGraphMultipleStartpoints:bool = False
     ):
 
 
@@ -60,7 +61,12 @@ def network_span_bfs(
     :param createMST: Boolean if minimum spanning tree of all resulting graphs shall be calculated.\n
     :param weightMST: attribute name for calculation of minimum spanning tree.\n
     :param subsetNodesMST: geopandas.GeoDataFrame with subset of nodes (point objects) which shall be considered for caclulation of MST. If None or empty, MST for complete graph is calculated.\n
-
+    :param removeDuplicateGraphs: Boolean switch if postprocessing function shall be applied which removes duplicate graphs from result list.\n
+    :param removeSmallNetworks: boolean switch if postprocessing function shall be applied which removes graphs that are too small (refering to attribute att_nB and threshold min_nB).\n
+    :param mergeTouchingGraphs: boolean switch if postprocessing function shall be applied which merges touchign graphs and removes duplicate edges.\n
+    :param returnAddResults: boolean switch if additional results from the BFS algorithm shall be returned (SFList, usedEnergyBudgetList, usedPowerBudgetList, currentThermalLossFactorList, summedLengthList, avlineDensityList).\n
+    :param reduceInputGraphMultipleStartpoints: boolean switch to control if subgraphs of already chosen edges shall be removed from the original graph before it is passed to the next starting location (for multiple starting locations only).\n
+    
     :returns: edges of graph resulting from breadth-first-search algorithm
     
     Reminder for structure of networkx graphs edges:
@@ -112,7 +118,7 @@ def network_span_bfs(
 
         startLocs = list(set((tuple(closest_point(points = arrB, target = poin, threshDistance = 100)),0) for poin in arrA))
 
-
+    # Initialization of optional additional outputs
     list_G = []
     orderDictList = []
     SFList = []
@@ -122,12 +128,15 @@ def network_span_bfs(
     summedLengthList = []
     avlineDensityList = []
 
+    # Initialization of input set of edges/original graph for BFS algo
+    G_start = G.copy() 
+
     for nn, startLoc in enumerate(startLocs):
         print(f'\n### Network extension algorithm, startpoint {nn+1} of {len(startLocs)}.\n')
         # res contains tuples of form (edge), ID, order for each edge added to the final graph ((edge), enum_ID, order, currentSF, usedEnergyBudget, usedPowerBudget, currentThermalLossFactor, summedLength, avAtt)
         res  = list(
             bfs_network_extension(
-                G = G,
+                G = G_start,
                 start = startLoc[0],
                 valAttr = val_Attr,
                 att_pth = att_pth,
@@ -145,7 +154,8 @@ def network_span_bfs(
                 )
         )
 
-        G_add = cut_graph_to_edgelist(G = G, edgelist = [ed[0] for ed in res])
+        # Cut original graph to chosen list of edges to obtain network graph object
+        G_add = cut_graph_to_edgelist(G = G, edgelist = [ed[0] for ed in res], keySensitive = True)
 
         # Create dictionary for order of addition (values) to graph for each line segment ID (keys)
         orderDictList.append({r[1]:r[2] for r in reversed(res)})
@@ -158,14 +168,19 @@ def network_span_bfs(
         summedLengthList.append([r[7] for r in res])
         avlineDensityList.append([r[8] for r in res])
 
+        # Add graph to output list of graphs
         list_G.append(G_add)
 
-    list_G_unedited = list_G.copy()
+        # Cut G_start to remaining, unchosen edges from original graph G
+        if reduceInputGraphMultipleStartpoints:
+            G_start = cut_graph_to_edgelist(G = G_start, edgelist = [ed[0] for ed in res], keySensitive = True, reverseSelection = True)
 
-    # Keep only the biggest subgraph to avoid hydraulically unconnected network partitions
-    list_G = get_biggest_coherent_subgraph(graphList = list_G)
+    # list_G_unedited = list_G.copy()
+    # print(f'no. of edges in unedited graph = {len(list(list_G_unedited[0].edges))}')
+    # print(f'no. of edges in graph = {len(list(list_G[0].edges))}')
 
-    # Deletion of graphs which are identical
+    # Deletion of graphs which are identical or subgraphs of each other
+    # list_G is sorted in descending order from the biggest graph. If any subsequent graph is a complete subgraph (a duplicate), it will become empty. The permutation order of sorting is returned as well to keep consistency to the input order of starting locations.
     if removeDuplicateGraphs:
         list_G = remove_duplicate_graphs(graphList = list_G)
 
@@ -192,7 +207,7 @@ def network_span_bfs(
         nodes, edges, sw = momepy.nx_to_gdf(G_b, points=True, lines=True, spatial_weights=True)
         edges = edges[[col for col in edges.columns if col in list(lines.columns) + ['order']]]
 
-        # Assigfn additional columns
+        # Assign additional columns
         edges['network_ID'] = n
 
         # Correct enumeration_ID for lines added in postprocessing
@@ -234,7 +249,7 @@ def bfs_network_extension(
     Function to create spanned tree/network based on a defined energy budget that can be distributed from a chosen starting point.
     Breadth-first-search-based algorithm.
 
-    :param G: networkx.graph object containign all edges and nodes that can possibly be part of the output graph and shall be searched.\n
+    :param G: networkx.graph object containing all edges and nodes that can possibly be part of the output graph and shall be searched.\n
     :param start: Tuple of (x,y) point values for starting point of search.\n
     :param val_Attr: Edge attribute containing length-specific information (e.g. line density).\n
     :param att_pth: Edge attribute containting information on summed heating power on line segments (MW).\n
@@ -284,7 +299,6 @@ def bfs_network_extension(
     def edges_from(node):
         return iter(G.edges(node, **kwds))
 
-
     if directed:
         def edge_id(edge):
             # remove direction indicator
@@ -317,6 +331,10 @@ def bfs_network_extension(
 
     potentialEdges = []
 
+    # Plausibility checks
+    if att_pth is None:
+        print(f'"att_pth" is not provided in graph representation. It is calculated from {att_heatDemand}/1700. ###')
+
 
 
     while queue and (usedEnergyBudget <= eBudget) and (usedPowerBudget <= pBudget or not considerPowerBudget):
@@ -332,7 +350,9 @@ def bfs_network_extension(
 
             edgeid = edge_id(edge)
 
-            if edgeid not in visited_edges:
+            # Check if edge has not been visited yet (key-sensitive)
+            # and check if current edge shares at least one common node with the set of potential edges (output graph) to ensure coherence of the output graph
+            if (edgeid not in visited_edges) and (not any(potentialEdges) or any(set(edge[:-1]) & set(b for e in potentialEdges for b in e[:-1]))):
 
                 ### Loop over each keys of child -> Necessary to identify self-loops            
                 for key in list(G[parent][child].keys()):
@@ -342,36 +362,36 @@ def bfs_network_extension(
                         edge_att_length    = G[parent][child].get(key, {}).get(lengthAttr)
                         edge_att_hd        = G[parent][child].get(key, {}).get(att_heatDemand) if att_heatDemand is not None else edge_att_ld*edge_att_length
                         edge_att_pth       = G[parent][child].get(key, {}).get(att_pth) if considerPowerBudget else 0
-                        enum_ID      = G[parent][child].get(key, {}).get(enumeration_ID)
+                        enum_ID            = G[parent][child].get(key, {}).get(enumeration_ID)
 
                         ### Calculate statistics in current partial graph
-                        G_new               = cut_graph_to_edgelist(G = G, edgelist = potentialEdges)
-                        summedLength        = G_new.size(weight = lengthAttr)
-                        summedHeatDemand    = G_new.size(weight = att_heatDemand)
+                        G_new               = cut_graph_to_edgelist(G = G, edgelist = potentialEdges, keySensitive = True)
+                        summedLength        = G_new.size(weight = lengthAttr) # summed network length
+                        summedHeatDemand    = G_new.size(weight = att_heatDemand) # summed heat demand (without losses)
                         summedB             = G_new.size(weight = att_nB) if att_nB is not None else G_new.size() # Number of edges if att_nB not existent
                         avAtt               = summedHeatDemand/max(0.001, summedLength) # Average line density (MWh/m)
 
                         if att_pth is None:
-                            summedPth      = G_new.size(weight = att_heatDemand / 1700)
-                            print(f'"att_pth" is not provided in graph representation. It is calculated from {att_heatDemand}/1700. ###')
+                            summedPth      = G_new.size(weight = att_heatDemand / 1700)                            
                         else:                            
-                            summedPth           = G_new.size(weight = att_pth)
+                            summedPth      = G_new.size(weight = att_pth) # Summed thermal power demand (no losses)
 
                         currentThermalLossFactor = adaptThermalLoss(max(0, avAtt)) if adaptThermalLoss is not None else 0
-                        summedHeatDemand *= (1+currentThermalLossFactor)
+                        summedHeatDemand *= (1+currentThermalLossFactor) # summed heat demand (incl. losses)
 
                         currentThermalPowerLossFactor = adaptThermalPowerLoss(summedPth / max(1, summedLength)) if adaptThermalPowerLoss is not None else 0
                         currentSF = adaptSimultaneityFactor(summedB) if adaptSimultaneityFactor is not None else 1
 
-                        summedPth *= (currentSF * (1+currentThermalPowerLossFactor))
+                        summedPth *= (currentSF * (1+currentThermalPowerLossFactor)) # summed thermal power demand (incl. losses)
 
                         # print('Current thermal loss factor = '+str(currentThermalLossFactor))
                         # print('Current simultaneity factor = '+str(currentSF))
                         # print('PTh = '+str(summedPth))
 
-
                         # Check if line density attribute is high enough for adding edge to graph
                         if edge_att_ld > max(minvalAttr_maxLength.keys()):
+
+                            # Check if energy budget and power budget are not exhausted
                             if (eBudget - usedEnergyBudget) >= edge_att_hd * (1+currentThermalLossFactor) and ((pBudget - usedPowerBudget) >= currentSF * (1+currentThermalPowerLossFactor) * edge_att_pth or not considerPowerBudget): 
 
                                 visited_edges.add(edgeid)
@@ -405,7 +425,7 @@ def bfs_network_extension(
 
 
     ### Calculate statistics in final graph
-    G_new               = cut_graph_to_edgelist(G = G, edgelist = potentialEdges)
+    G_new               = cut_graph_to_edgelist(G = G, edgelist = potentialEdges, keySensitive = True)
     summedLength        = G_new.size(weight = lengthAttr)
     summedHeatDemand    = G_new.size(weight = att_heatDemand)
     summedB             = G_new.size(weight = att_nB) if att_nB is not None else G_new.size() # Number of edges if att_nB not existent
@@ -1001,15 +1021,17 @@ def dfs_level_search(
                 else:
                     stack.pop()
 
-def cut_graph_to_edgelist(G:nx.graph,edgelist:list,keySensitive:bool = True):
+
+def cut_graph_to_edgelist(G:nx.graph,edgelist:list,keySensitive:bool = True, reverseSelection:bool = False):
     
     """
     Function that takes **G** as networkx graph and creates subgraph from **G** containing only edges provided in **edgelist**
 
-    :param G: networkx graph object
-    :param edgelist: list of edges from which subgraph of G shall be created
-    :param keySensitive: boolean switch if check for identical keys shall be performed or only adjacent nodes are relevant.
-    :returns: G_copy as subgraph of G 
+    :param G: networkx graph object\n
+    :param edgelist: list of edges from which subgraph of G shall be created\n
+    :param keySensitive: boolean switch if check for identical keys shall be performed or only adjacent nodes are relevant.\n
+    :param reverseSelection: boolean defining whether all edges not contained in edgelist shall be removed from original graph (reverseSelection == False) or if edges contained in edgelist shall be removed (reverseSelection == True)\n
+    :returns: G_copy as subgraph of G\n
 
     """
     
@@ -1020,20 +1042,42 @@ def cut_graph_to_edgelist(G:nx.graph,edgelist:list,keySensitive:bool = True):
     # Create copy
     G_copy = G.copy()
 
-    # remove edges not contained in edgelist
-    if keySensitive: # Used for MultiGraphs
-        for edge in list(G_copy.edges(keys=True)):
-            u, v, key = edge  # Extract nodes and keys
+    if not reverseSelection:
+        # remove edges not contained in edgelist
+        if keySensitive: # Used for MultiGraphs
+            for edge in list(G_copy.edges(keys=True)):
+                u, v, key = edge  # Extract nodes and keys
 
-            if (u, v, key) not in edgelist and (v, u, key) not in edgelist:
-                G_copy.remove_edge(u, v, key)
+                if (u, v, key) not in edgelist and (v, u, key) not in edgelist:
+                    G_copy.remove_edge(u, v, key)
+
+        else:
+            for edge in list(G_copy.edges(keys=False)):
+                u, v = edge  # Extract nodes
+
+                if (u, v) not in edgelist and (v, u) not in edgelist:
+                    G_copy.remove_edge(u, v)
+
 
     else:
-        for edge in list(G_copy.edges(keys=False)):
-            u, v = edge  # Extract nodes
+        # remove edges contained in edgelist
+        if keySensitive: # Used for MultiGraphs
+            for edge in list(G_copy.edges(keys=True)):
+                u, v, key = edge  # Extract nodes and keys
 
-            if (u, v) not in edgelist and (v, u) not in edgelist:
-                G_copy.remove_edge(u, v)
+                if (u, v, key) in edgelist:
+                    G_copy.remove_edge(u, v, key)
+                if (v, u, key) in edgelist:
+                    G_copy.remove_edge(v, u, key)
+
+        else:
+            for edge in list(G_copy.edges(keys=False)):
+                u, v = edge  # Extract nodes
+
+                if (u, v) in edgelist:
+                    G_copy.remove_edge(u, v)
+                if (v, u) in edgelist:
+                    G_copy.remove_edge(v, u)
              
     # Remove nodes without a connection
     isolated_nodes = [node for node, degree in dict(G_copy.degree()).items() if degree == 0]
@@ -1149,37 +1193,53 @@ def remove_duplicate_graphs(graphList:list):
     
     # Initialize list of unique graphs 
     unique_graphs = []
+    unique_graph_indices = []
     
     # Initialize stack of sorted graphs from list
-    stack = sorted(graphList, key=lambda graph: len(graph.edges(keys=True, data = True)),reverse=True)
+    # stack = sorted(graphList, key=lambda graph: len(graph.edges(keys=True, data = True)), reverse=True)
+    perm, stack = sort_with_permutation(lst = graphList, key = lambda x: len(x[1].edges(keys=True, data = True)), reverse = True)
+  
+    
+
 
     while stack:
         
         # Current graph
         curr_graph = stack[0]
-    
+        original_idx = perm[len(unique_graphs)]        
+
         # Append to list of unique graphs
         unique_graphs.append(curr_graph)
+        unique_graph_indices.append(original_idx)
         
-        # other grpahs to compare to
-        list_comp_graphs = stack[1:] # Liste rumdrehen
+        # other graphs to compare to
+        list_comp_graphs = stack[1:] # Reverse list
+        comp_indices = perm[len(unique_graphs):]
        
         # empty stack
         stack = []
+        perm_rest = []
         
         # Loop through all other graphs to compare to
-        for comp_graph in list_comp_graphs:
+        for n, comp_graph in enumerate(list_comp_graphs):
             
             # Get edges of current graph and graph to compare to
-            edges_cur_set = set(curr_graph.edges(keys=True)) # aktuell
-            edges_com_set = set(comp_graph.edges(keys=True)) # vergleich
+            edges_cur_set = set(curr_graph.edges(keys=True))
+            edges_com_set = set(comp_graph.edges(keys=True))
             
             merged_set = edges_cur_set | edges_com_set
             
             # If set of edges is equal, then identical graphs or subgraph
-            if not len(merged_set) == len(edges_cur_set): stack.append(comp_graph)
+            if not len(merged_set) == len(edges_cur_set):
+                stack.append(comp_graph)
+                perm_rest.append(comp_indices[n])
+
+        perm = perm[:len(unique_graphs)] + perm_rest
+
+        
+    restore_order = sorted(zip(unique_graph_indices, unique_graphs), key=lambda x: x[0])    
                 
-    return unique_graphs
+    return [g for i, g in restore_order]
 
 def merge_touching_graphs(graphList:list, G:nx.graph):
 

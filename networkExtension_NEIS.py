@@ -52,10 +52,10 @@ att_len = 'length'
 att_nB = 'nBuildsdemand_use_th'
 
 # Energy budget for production at defined starting points (MWh)
-energyBudget = [[22e03, 10e04]]#, 10e04]]#[[8000, 10e04, 10000], [16000, 10e04, 20000], [22000, 10e04, 20000]]
+energyBudget = [[22e03, 1e04]]#, 10e04]]#[[8000, 10e04, 10000], [16000, 10e04, 20000], [22000, 10e04, 20000]]
 
 # Thermal power budget for production at defined starting points (MW)
-powerBudget = [[18, 12.5]]#, 12.5]]#, 12.5, 8]]#[[4, 12.5, 4], [8, 12.5, 8], [18, 12.5, 8]]
+powerBudget = [[18, 3]]#, 12.5]]#, 12.5, 8]]#[[4, 12.5, 4], [8, 12.5, 8], [18, 12.5, 8]]
 
 # mindest Anzahl an Gebäuden pro ein Netz
 n_build = 17
@@ -122,7 +122,7 @@ for r, run in enumerate(powerBudget):
 
     gdf_graphs, graphList, SFList1, usedEnergyBudgetList1, usedPowerBudgetList1, currentThermalLossFactorList1, summedLengthList1, avlineDensityList1 = network_span_bfs(
         lines = lines,
-        startpoints = startpoints.loc[:1],
+        startpoints = startpoints.loc[[0, 3]],
         val_Attr = att_ld,
         att_pth = att_pth,
         length_Attr = att_len,
@@ -141,7 +141,7 @@ for r, run in enumerate(powerBudget):
         createMST = False,
         mergeTouchingGraphs = True,
         returnAddResults = True,
-        reduceInputGraphMultipleStartpoints = True
+        reduceInputGraphMultipleStartpoints = False
     )
 
     endtime = time.time()

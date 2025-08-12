@@ -13,8 +13,10 @@ from internal_auxFunctions import (simultaneity_DH, relThermalLoss_DH, relTherma
 
 # %% Load data
 
-flp = Path(r'D:\GitLab\paper_generic_network_creation\data\lineDensity')
-flp_out = flp
+flp = Path(r'C:\GitLab\paper_generic_network_creation\data\lineDensity')
+flp_out = Path(r'C:\Users\Voelzel\Desktop\tempRes')
+
+
 
 # Coordinate system
 cs = 'EPSG:25832'
@@ -30,7 +32,7 @@ lines               = lines[~lines['index_right'].isna()].reset_index(drop = Tru
 
 startpoints         = gp.read_file(flp / Path(r'startpointsProducers.gpkg')).to_crs(cs)
 
-backgroundLines = gp.read_file(flp / Path(r'Streets_LineDensity_bestand_renov_v1_cutBackground.gpkg')).to_crs(cs)
+backgroundLines = gp.read_file(flp / Path(r'Streets_LineDensity_bestand_renov_v1.gpkg')).to_crs(cs)
 
 ### Limits & attributes
 
@@ -50,10 +52,10 @@ att_len = 'length'
 att_nB = 'nBuildsdemand_use_th'
 
 # Energy budget for production at defined starting points (MWh)
-energyBudget = [[15000]]#, 10e04, 20000]]#[[8000, 10e04, 10000], [16000, 10e04, 20000], [22000, 10e04, 20000]]
+energyBudget = [[10e04]]#, 10e04]]#[[8000, 10e04, 10000], [16000, 10e04, 20000], [22000, 10e04, 20000]]
 
 # Thermal power budget for production at defined starting points (MW)
-powerBudget = [[7]]#, 12.5, 8]]#[[4, 12.5, 4], [8, 12.5, 8], [18, 12.5, 8]]
+powerBudget = [[12.5]]#, 12.5]]#, 12.5, 8]]#[[4, 12.5, 4], [8, 12.5, 8], [18, 12.5, 8]]
 
 # mindest Anzahl an Gebäuden pro ein Netz
 n_build = 17
@@ -61,6 +63,26 @@ n_build = 17
 # Sort edges by edge attribute in descending order (sorting per node adjacent edges)
 sortByAttr = att_ld
 
+
+
+# %% Scratch
+
+redGraphs = gp.read_file(Path(r'C:\Users\Voelzel\Desktop\tempRes\graphs_extension_2025_v2_reducedInputGraph.gpkg'))
+
+# %% Scratch
+
+avLD = redGraphs['demand_use_th'].sum() / redGraphs.geometry.length.sum()
+
+Qloss = relThermalLoss_DH(avLD)*redGraphs['demand_use_th'].sum()
+Qdem = (Qloss + redGraphs['demand_use_th'].sum())/(1e03)
+
+Pdem = redGraphs['p_use_th'].sum() * 0.7
+
+print(f'\n Pdem = {Pdem} MW')
+print(f'\n Qdem = {Qdem} MWh')
+
+print(f'\n Qsupply = {10e04 + 22000} MWh')
+print(f'\n Psupply = {18+12.5} MW')
 
 
 # %% Start algorithm
@@ -82,7 +104,7 @@ for r, run in enumerate(powerBudget):
 
     gdf_graphs, graphList, SFList1, usedEnergyBudgetList1, usedPowerBudgetList1, currentThermalLossFactorList1, summedLengthList1, avlineDensityList1 = network_span_bfs(
         lines = lines,
-        startpoints = startpoints.loc[[2]],
+        startpoints = startpoints.loc[[1]],
         val_Attr = att_ld,
         att_pth = att_pth,
         length_Attr = att_len,
@@ -99,7 +121,8 @@ for r, run in enumerate(powerBudget):
         adaptThermalPowerLoss = relThermalLossPower_DH,
         minvalAttr_maxLength = {0.5:25},
         createMST = False,
-        returnAddResults = True
+        returnAddResults = True,
+        reduceInputGraphMultipleStartpoints = True
     )
     endtime = time.time()
     timeElapsed = endtime - starttime
@@ -115,16 +138,17 @@ for r, run in enumerate(powerBudget):
     startpoints.plot(ax = ax, color = 'red', zorder = 10)
 
     # Export
-
     if not os.path.exists(flp_out):
         os.makedirs(flp_out)
         print('### New directory for storing results is created! ###')
 
     # Save edges
     # output_path = flp_out / Path(f'graphs_extension_2025_v3_relLoss0p05_relLoss0p15_simultaneity1.gpkg')
-    output_path = flp_out / Path(f'graphs_extension_2025_v2.gpkg')
+    output_path = flp_out / Path(f'graphs_extension_2025_v2_OnlyProd2.gpkg')
 
-    # gdf_graphs.to_file(output_path, layer = f'Pthprod1_{powerBudget[r][0]:.1f}MW_Pthprod2_{powerBudget[r][1]:.1f}MW_Pthprod3_{powerBudget[r][2]:.1f}MW', driver="GPKG")
+    # gdf_graphs.to_file(output_path, layer = f'Pthprod1_{powerBudget[r][0]:.1f}MW_Pthprod2_{powerBudget[r][1]:.1f}', driver="GPKG")
+
+    gdf_graphs.to_file(output_path, layer = f'Pthprod1_{powerBudget[r][0]:.1f}', driver="GPKG")
 
 # %% *--- Template: Create plot over number of street segments in network extension analysis ---*
 

@@ -34,7 +34,8 @@ def network_span_bfs(
         removeDuplicateGraphs:bool = True,
         removeSmallNetworks:bool = True,
         mergeTouchingGraphs:bool = True,
-        returnAddResults:bool = False
+        returnAddResults:bool = False,
+        reduceInputGraphMultipleStartpoints:bool = False
     ):
 
 
@@ -60,7 +61,11 @@ def network_span_bfs(
     :param createMST: Boolean if minimum spanning tree of all resulting graphs shall be calculated.\n
     :param weightMST: attribute name for calculation of minimum spanning tree.\n
     :param subsetNodesMST: geopandas.GeoDataFrame with subset of nodes (point objects) which shall be considered for caclulation of MST. If None or empty, MST for complete graph is calculated.\n
-
+    :param removeDuplicateGraphs: Boolean switch if postprocessing function shall be applied which removes duplicate graphs from result list.\n
+    :param removeSmallNetworks: boolean switch if postprocessing function shall be applied which removes graphs that are too small (refering to attribute att_nB and threshold min_nB).\n
+    :param mergeTouchingGraphs: boolean switch if postprocessing function shall be applied which merges touchign graphs and removes duplicate edges.\n
+    :param returnAddResults: boolean switch if additional results from the BFS algorithm shall be returned (SFList, usedEnergyBudgetList, usedPowerBudgetList, currentThermalLossFactorList, summedLengthList, avlineDensityList).\n
+    
     :returns: edges of graph resulting from breadth-first-search algorithm
     
     Reminder for structure of networkx graphs edges:
@@ -112,7 +117,7 @@ def network_span_bfs(
 
         startLocs = list(set((tuple(closest_point(points = arrB, target = poin, threshDistance = 100)),0) for poin in arrA))
 
-
+    # Initialization of optional additional outputs
     list_G = []
     orderDictList = []
     SFList = []
@@ -122,12 +127,15 @@ def network_span_bfs(
     summedLengthList = []
     avlineDensityList = []
 
+    # Initialization of input set of edges/original graph for BFS algo
+    G_start = G.copy() 
+
     for nn, startLoc in enumerate(startLocs):
         print(f'\n### Network extension algorithm, startpoint {nn+1} of {len(startLocs)}.\n')
         # res contains tuples of form (edge), ID, order for each edge added to the final graph ((edge), enum_ID, order, currentSF, usedEnergyBudget, usedPowerBudget, currentThermalLossFactor, summedLength, avAtt)
         res  = list(
             bfs_network_extension(
-                G = G,
+                G = G_start,
                 start = startLoc[0],
                 valAttr = val_Attr,
                 att_pth = att_pth,
@@ -145,7 +153,8 @@ def network_span_bfs(
                 )
         )
 
-        G_add = cut_graph_to_edgelist(G = G, edgelist = [ed[0] for ed in res])
+        # Cut original graph to chosen list of edges to obtain network graph object
+        G_add = cut_graph_to_edgelist(G = G, edgelist = [ed[0] for ed in res], keySensitive = True)
 
         # Create dictionary for order of addition (values) to graph for each line segment ID (keys)
         orderDictList.append({r[1]:r[2] for r in reversed(res)})
@@ -158,7 +167,12 @@ def network_span_bfs(
         summedLengthList.append([r[7] for r in res])
         avlineDensityList.append([r[8] for r in res])
 
+        # Add graph to output list of graphs
         list_G.append(G_add)
+
+        # Cut G_start to remaining, unchosen edges from original graph G
+        if reduceInputGraphMultipleStartpoints:
+            G_start = cut_graph_to_edgelist(G = G_start, edgelist = [ed[0] for ed in res], keySensitive = True, reverseSelection = True)
 
     list_G_unedited = list_G.copy()
 
@@ -1001,15 +1015,17 @@ def dfs_level_search(
                 else:
                     stack.pop()
 
-def cut_graph_to_edgelist(G:nx.graph,edgelist:list,keySensitive:bool = True):
+
+def cut_graph_to_edgelist(G:nx.graph,edgelist:list,keySensitive:bool = True, reverseSelection:bool = False):
     
     """
     Function that takes **G** as networkx graph and creates subgraph from **G** containing only edges provided in **edgelist**
 
-    :param G: networkx graph object
-    :param edgelist: list of edges from which subgraph of G shall be created
-    :param keySensitive: boolean switch if check for identical keys shall be performed or only adjacent nodes are relevant.
-    :returns: G_copy as subgraph of G 
+    :param G: networkx graph object\n
+    :param edgelist: list of edges from which subgraph of G shall be created\n
+    :param keySensitive: boolean switch if check for identical keys shall be performed or only adjacent nodes are relevant.\n
+    :param reverseSelection: boolean defining whether all edges not contained in edgelist shall be removed from original graph (reverseSelection == False) or if edges contained in edgelist shall be removed (reverseSelection == True)\n
+    :returns: G_copy as subgraph of G\n
 
     """
     
@@ -1020,20 +1036,42 @@ def cut_graph_to_edgelist(G:nx.graph,edgelist:list,keySensitive:bool = True):
     # Create copy
     G_copy = G.copy()
 
-    # remove edges not contained in edgelist
-    if keySensitive: # Used for MultiGraphs
-        for edge in list(G_copy.edges(keys=True)):
-            u, v, key = edge  # Extract nodes and keys
+    if not reverseSelection:
+        # remove edges not contained in edgelist
+        if keySensitive: # Used for MultiGraphs
+            for edge in list(G_copy.edges(keys=True)):
+                u, v, key = edge  # Extract nodes and keys
 
-            if (u, v, key) not in edgelist and (v, u, key) not in edgelist:
-                G_copy.remove_edge(u, v, key)
+                if (u, v, key) not in edgelist and (v, u, key) not in edgelist:
+                    G_copy.remove_edge(u, v, key)
+
+        else:
+            for edge in list(G_copy.edges(keys=False)):
+                u, v = edge  # Extract nodes
+
+                if (u, v) not in edgelist and (v, u) not in edgelist:
+                    G_copy.remove_edge(u, v)
+
 
     else:
-        for edge in list(G_copy.edges(keys=False)):
-            u, v = edge  # Extract nodes
+        # remove edges contained in edgelist
+        if keySensitive: # Used for MultiGraphs
+            for edge in list(G_copy.edges(keys=True)):
+                u, v, key = edge  # Extract nodes and keys
 
-            if (u, v) not in edgelist and (v, u) not in edgelist:
-                G_copy.remove_edge(u, v)
+                if (u, v, key) in edgelist:
+                    G_copy.remove_edge(u, v, key)
+                if (v, u, key) in edgelist:
+                    G_copy.remove_edge(v, u, key)
+
+        else:
+            for edge in list(G_copy.edges(keys=False)):
+                u, v = edge  # Extract nodes
+
+                if (u, v) in edgelist:
+                    G_copy.remove_edge(u, v)
+                if (v, u) in edgelist:
+                    G_copy.remove_edge(v, u)
              
     # Remove nodes without a connection
     isolated_nodes = [node for node, degree in dict(G_copy.degree()).items() if degree == 0]

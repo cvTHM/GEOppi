@@ -97,7 +97,7 @@ for r, run in enumerate(powerBudget):
         adaptThermalLoss = relThermalLoss_DH,
         adaptSimultaneityFactor = simultaneity_DH,
         adaptThermalPowerLoss = relThermalLossPower_DH,
-        minvalAttr_maxLength = {0.5:25},
+        minvalAttr_maxLength = {-0.5:25},
         createMST = False,
         returnAddResults = True
     )

@@ -34,6 +34,131 @@ def checkUserPFOptionsThermal(net, ctrlName:str):
 
 ### Definition of custom controllers ###
 
+class ppi_HeatConsumerCOPConversionQdem(BasicCtrl):
+
+    def __init__(self, net, Tsink_heatingSystem:list = [273.15 + 60], efficiency:list = [0.5], heatConsumer_idxs:list = None, abs_tol:float = 0.1, proportional_gain:float = 0.5, order:int = 1, level:int = 1, index:int = None, **kwargs):
+
+        super(ppi_HeatConsumerCOPConversionQdem, self).__init__(net, **kwargs)
+
+        self.Tsink_heatingSystem = Tsink_heatingSystem
+        self.efficiency = efficiency
+        self.heatConsumer_idxs = heatConsumer_idxs if heatConsumer_idxs is not None else net.heat_consumer.index
+        self.abs_tol = abs_tol
+        self.proportional_gain = proportional_gain
+        self.iterations = 0
+
+        if index is None and "controller" in net.keys():
+            index = get_free_id(net.controller)
+
+        self.index = self.add_controller_to_net(net = net, in_service = True, initial_run = True, index = index, order = order, level = level, recycle = False, overwrite = True, drop_same_existing_ctrl = True, **kwargs)
+
+        # Assign Tsink_heatingSystem and efficiencies toi heat consumers individually (if desired)
+        if isinstance(Tsink_heatingSystem, list):
+            if len(Tsink_heatingSystem) > len(self.heatConsumer_idxs):
+                self.Tsink_heatingSystem = np.array(Tsink_heatingSystem[:len(self.heatConsumer_idxs)])
+            elif len(Tsink_heatingSystem) < len(self.heatConsumer_idxs):
+                self.Tsink_heatingSystem = np.array(Tsink_heatingSystem.extend(list(np.ones(len(self.heatConsumer_idxs)-len(Tsink_heatingSystem))*(273.15+60))))
+        else:
+            self.Tsink_heatingSystem = np.array([Tsink_heatingSystem] * len(self.heatConsumer_idxs))
+
+        if isinstance(efficiency, list):
+            if len(efficiency) > len(self.heatConsumer_idxs):
+                self.efficiency = np.array(efficiency[:len(self.heatConsumer_idxs)])
+            elif len(efficiency) < len(self.heatConsumer_idxs):
+                self.efficiency = np.array(efficiency.extend(list(np.ones(len(self.heatConsumer_idxs)-len(efficiency))*(0.5))))
+        else:
+            self.efficiency = np.array([efficiency] * len(self.heatConsumer_idxs))   
+
+
+    def add_controller_to_net(self, net, in_service, initial_run, order, level, index, recycle,
+                              drop_same_existing_ctrl, overwrite, **kwargs):
+        """
+        adds the controller to net['controller'] dataframe.
+
+        INPUT:
+            **in_service** (bool) - in service status
+
+            **order** (int) - order
+
+            **index** (int) - index
+
+            **recycle** (bool) - if controller needs a new bbm (ppc, Ybus...) or if it can be used \
+                                 with prestored values. This is mostly needed for time series \
+                                 calculations
+
+        """
+        if drop_same_existing_ctrl:
+            drop_same_type_existing_controllers(net, type(self), index=index, **kwargs)
+        else:
+            log_same_type_existing_controllers(net, type(self), index=index, **kwargs)
+
+        # use base class method to raise an error if the object is in DF and overwrite = False
+        # if the index is None, the base class is in charge of obtaining the next free index in the data frame
+        fill_dict = {"in_service": in_service, "initial_run": initial_run, "recycle": recycle,
+                     "order": order, "level": level}
+        added_index = super().add_to_net(net=net, element='controller', index=index, overwrite=overwrite,
+                           fill_dict=fill_dict, preserve_dtypes=True)
+        return added_index
+
+    def initialize_control(self, net):
+        # Extract indices of heat consumers which are active or inactive -> Definition is based on specified thermal demand
+        self.heatConsumer_active_idxs = list(net.heat_consumer.loc[(net.heat_consumer['qext_w'] > 0) & (~net.heat_consumer['controlled_mdot_kg_per_s'].isna())].index)
+        self.heatConsumer_inactive_idxs = list(set(net.heat_consumer.index).difference(set(self.heatConsumer_active_idxs)))
+
+        # Extract total demanded heating power at active consumers
+        self.heatConsumer_active_Qdem = net.heat_consumer.loc[self.heatConsumer_active_idxs, 'qext_w'].values
+       
+        # Initialization
+        self.heatConsumer_active_Qdem_source_target = (self.heatConsumer_active_Qdem - self.abs_tol * 10).clip(1e-05, np.inf)
+
+    def get_heatConsumer_states(self, net, idxs:list):
+
+        T_from = net.res_heat_consumer.loc[idxs, 't_from_k'].values
+        qext_source = net.res_heat_consumer.loc[idxs, 'qext_w'].values
+
+        return T_from, qext_source
+    
+
+    def control_step(self, net):
+
+        self.iterations += 1
+
+        ### Control step is performed for all currently active heat consumers
+
+        # Get current states at active heat consumers
+        T_from_current, qext_source_current = self.get_heatConsumer_states(net = net, idxs = self.heatConsumer_active_idxs)
+
+        # Determine current set source-side extracted power, dependent on current temperature T_from
+        COP_set = (self.Tsink_heatingSystem[self.heatConsumer_active_idxs] - T_from_current) / (self.Tsink_heatingSystem[self.heatConsumer_active_idxs]) * self.efficiency[self.heatConsumer_active_idxs]
+        qext_source_set = self.heatConsumer_active_Qdem / COP_set * (COP_set-1)
+
+        qext_error = qext_source_set - qext_source_current        
+
+        # Set new values for control step
+        self.heatConsumer_active_Qdem_source_target = qext_source_set
+
+        qext_source_new = qext_source_current + qext_error * self.proportional_gain
+        net.heat_consumer.loc[self.heatConsumer_active_idxs, 'qext_w'] = qext_source_new
+
+        return super(ppi_HeatConsumerCOPConversionQdem, self).control_step(net)
+    
+
+    def is_converged(self, net):
+
+        convergence = False
+
+        # Extract results at active consumers
+        _, qext_source_current = self.get_heatConsumer_states(net = net, idxs = self.heatConsumer_active_idxs)
+
+        qext_source_error = qext_source_current - self.heatConsumer_active_Qdem_source_target
+
+        if (all(abs(qext_source_error) <= self.abs_tol)):
+            convergence = True
+
+        return convergence
+
+
+
 class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
     """
     Class of controller in pandapipes network for...

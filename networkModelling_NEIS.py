@@ -513,7 +513,7 @@ netFeedReflux = implement_controllers(
         'order':1,
         'level':5
         },
-    dpminCtrlDict = {
+    dpminCtrlDict = { # Lowest control order in level 5 = highest priority in level 5
         'create':True, 
         'dpmin_target':dpmin_target, 
         'circ_pump_pressure_idx':circ_pump_pressure_idx,
@@ -522,7 +522,7 @@ netFeedReflux = implement_controllers(
         'order':0,
         'level':5
         },
-    TRefluxHeatConsumerCtrlDict = {
+    TRefluxHeatConsumerCtrlDict = { # Lowest control level = highest priority
         'create':True,
         'T_target':tReflux + 273.15,
         'min_mdot':0.015,

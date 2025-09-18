@@ -36,12 +36,13 @@ def checkUserPFOptionsThermal(net, ctrlName:str):
 
 class ppi_HeatConsumerCOPConversionQdem(BasicCtrl):
 
-    def __init__(self, net, Tsink_heatingSystem:list = [273.15 + 60], efficiency:list = [0.5], heatConsumer_idxs:list = None, abs_tol:float = 0.1, proportional_gain:float = 0.5, order:int = 1, level:int = 1, index:int = None, **kwargs):
+    def __init__(self, net, Tsink_heatingSystem:list = [273.15 + 60], efficiency:list = [0.5], deltaTsource:list = [4], heatConsumer_idxs:list = None, abs_tol:float = 0.1, proportional_gain:float = 0.5, order:int = 1, level:int = 1, index:int = None, **kwargs):
 
         super(ppi_HeatConsumerCOPConversionQdem, self).__init__(net, **kwargs)
 
         self.Tsink_heatingSystem = Tsink_heatingSystem
         self.efficiency = efficiency
+        self.deltaTsource = deltaTsource
         self.heatConsumer_idxs = heatConsumer_idxs if heatConsumer_idxs is not None else net.heat_consumer.index
         self.abs_tol = abs_tol
         self.proportional_gain = proportional_gain
@@ -52,7 +53,12 @@ class ppi_HeatConsumerCOPConversionQdem(BasicCtrl):
 
         self.index = self.add_controller_to_net(net = net, in_service = True, initial_run = True, index = index, order = order, level = level, recycle = False, overwrite = True, drop_same_existing_ctrl = True, **kwargs)
 
-        # Assign Tsink_heatingSystem and efficiencies toi heat consumers individually (if desired)
+        # Assign Tsink_heatingSystem and efficiencies to heat consumers individually (if desired)
+        # Default values for missing entries:
+        ## Tsink_heatingSystem = 273.15+60 K
+        ## efficiency = 0.5
+        ## deltaTsource = 4 K
+
         if isinstance(Tsink_heatingSystem, list):
             if len(Tsink_heatingSystem) > len(self.heatConsumer_idxs):
                 self.Tsink_heatingSystem = np.array(Tsink_heatingSystem[:len(self.heatConsumer_idxs)])
@@ -68,6 +74,14 @@ class ppi_HeatConsumerCOPConversionQdem(BasicCtrl):
                 self.efficiency = np.array(efficiency.extend(list(np.ones(len(self.heatConsumer_idxs)-len(efficiency))*(0.5))))
         else:
             self.efficiency = np.array([efficiency] * len(self.heatConsumer_idxs))   
+
+        if isinstance(deltaTsource, list):
+            if len(deltaTsource) > len(self.heatConsumer_idxs):
+                self.deltaTsource = np.array(deltaTsource[:len(self.heatConsumer_idxs)])
+            elif len(deltaTsource) < len(self.heatConsumer_idxs):
+                self.deltaTsource = np.array(deltaTsource.extend(list(np.ones(len(self.heatConsumer_idxs)-len(deltaTsource))*(4))))
+        else:
+            self.deltaTsource = np.array([deltaTsource] * len(self.heatConsumer_idxs))
 
 
     def add_controller_to_net(self, net, in_service, initial_run, order, level, index, recycle,
@@ -108,9 +122,10 @@ class ppi_HeatConsumerCOPConversionQdem(BasicCtrl):
         # Extract total demanded heating power at active consumers
         self.heatConsumer_active_Qdem = net.heat_consumer.loc[self.heatConsumer_active_idxs, 'qext_w'].values
        
-        # Initialization
+        # Initialization of target source side thermal power extraction
         self.heatConsumer_active_Qdem_source_target = (self.heatConsumer_active_Qdem - self.abs_tol * 10).clip(1e-05, np.inf)
 
+    
     def get_heatConsumer_states(self, net, idxs:list):
 
         T_from = net.res_heat_consumer.loc[idxs, 't_from_k'].values
@@ -128,17 +143,23 @@ class ppi_HeatConsumerCOPConversionQdem(BasicCtrl):
         # Get current states at active heat consumers
         T_from_current, qext_source_current = self.get_heatConsumer_states(net = net, idxs = self.heatConsumer_active_idxs)
 
+        # Update current heat capacity of fluid
+        cp = net.fluid.get_heat_capacity(273.15+10)
+
         # Determine current set source-side extracted power, dependent on current temperature T_from
         COP_set = (self.Tsink_heatingSystem[self.heatConsumer_active_idxs] - T_from_current) / (self.Tsink_heatingSystem[self.heatConsumer_active_idxs]) * self.efficiency[self.heatConsumer_active_idxs]
         qext_source_set = self.heatConsumer_active_Qdem / COP_set * (COP_set-1)
-
+        
         qext_error = qext_source_set - qext_source_current        
 
         # Set new values for control step
         self.heatConsumer_active_Qdem_source_target = qext_source_set
 
         qext_source_new = qext_source_current + qext_error * self.proportional_gain
+        mdot_source_new = qext_source_new / (cp * self.deltaTsource[self.heatConsumer_active_idxs])
+
         net.heat_consumer.loc[self.heatConsumer_active_idxs, 'qext_w'] = qext_source_new
+        net.heat_consumer.loc[self.heatConsumer_active_idxs, 'controlled_mdot_kg_per_s'] = mdot_source_new
 
         return super(ppi_HeatConsumerCOPConversionQdem, self).control_step(net)
     

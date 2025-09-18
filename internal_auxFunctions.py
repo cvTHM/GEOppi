@@ -22,7 +22,7 @@ def implement_controllers(
         PthCtrlDict:dict = {'create':False,'circ_pump_mass_idxs':None, 'flow_controller_idxs':None, 'Pth_target_kW':1000,'abs_tol':100,  'order':2, 'level':5, 'index':None},
         PthLimitedCtrlDict:dict = {'create':False,'circ_pump_mass_idxs':None, 'circ_pump_pressure_index':None, 'flow_controller_idxs':None, 'Pth_target_kW':1000, 'abs_tol':100, 'order':2, 'level':5, 'priority_list':None, 'index':None},
         TRefluxHeatConsumerCtrlDict:dict = {'create':False,'T_target':273.15+40, 'abs_tol':1, 'order':0, 'level':-1, 'min_dT':None, 'min_mdot':None, 'index':None},
-        COPConversionQdemConsumerCtrlDict:dict = {'create':False,'efficiency':0.5, 'Tsink':273.15+60, 'abs_tol':1, 'order':0, 'level':-1, 'index':None}
+        COPConversionQdemConsumerCtrlDict:dict = {'create':False,'efficiency':0.5, 'Tsink':273.15+60, 'deltaTsource':4, 'abs_tol':1, 'order':0, 'level':-1, 'index':None}
         ):
     
 
@@ -73,6 +73,8 @@ def implement_controllers(
         COPConversionQdemConsumerCtrlDict['create'] = True
     if 'index' not in COPConversionQdemConsumerCtrlDict.keys():
         COPConversionQdemConsumerCtrlDict['index'] = None
+    if 'deltaTsource' not in COPConversionQdemConsumerCtrlDict.keys():
+        COPConversionQdemConsumerCtrlDict['deltaTsource'] = 4
 
     if COPConversionQdemConsumerCtrlDict['create']:
         controller_COPConversion_Qdem = ppi_HeatConsumerCOPConversionQdem(
@@ -84,6 +86,7 @@ def implement_controllers(
             level = COPConversionQdemConsumerCtrlDict['level'], 
             index = COPConversionQdemConsumerCtrlDict['index'],
             Tsink_heatingSystem = COPConversionQdemConsumerCtrlDict['Tsink'],
+            deltaTsource = COPConversionQdemConsumerCtrlDict['deltaTsource']
             ) 
 
     ### Control of TReflux in network heat consumers

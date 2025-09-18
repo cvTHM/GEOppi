@@ -65,6 +65,7 @@ netFeedReflux = implement_controllers(
         'order':0,
         'level':4,
         'Tsink':273.15+60,
+        'deltaTsource':5,
         'efficiency':0.5
     }
     )
@@ -73,7 +74,7 @@ print(netFeedReflux.controller)
 
 # %%
 
-netFeedReflux.heat_consumer['Pth_kW'] = netFeedReflux.heat_consumer['demand_use_th'] / 1700
+netFeedReflux.heat_consumer['Pth_kW'] = netFeedReflux.heat_consumer['demand_use_th'] / 1700 / 4*3
 
 netFeedReflux = transfer_LoadPoint_ppi(
         net = netFeedReflux,
@@ -81,7 +82,6 @@ netFeedReflux = transfer_LoadPoint_ppi(
         tReflux = tReflux + 273.15,
         text_pipes = 280,
         pNetwork = 2,
-        flh = 1700,
         heatingDemandAttr = 'demand_use_th',
         thermalPowerAttr = 'Pth_kW',
         thermalPowerAttrConsumers = 'Pth_kW',
@@ -92,3 +92,8 @@ netFeedReflux = transfer_LoadPoint_ppi(
 
 # Run pipeflow with consideration of controllers
 run_control(net = netFeedReflux,  max_iter = 50)
+
+
+# %%
+
+netFeedReflux.res_heat_consumer

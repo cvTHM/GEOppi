@@ -36,7 +36,7 @@ Figure
 <table>
   <tr>
     <td align="center" width="100%">
-      <img src="https://raw.githubusercontent.com/cvTHM/GEOppi/refs/heads/main/docs/images/fig1.png" alt="search spaces" 
+      <img src="https://raw.githubusercontent.com/cvTHM/GEOppi/refs/heads/main/docs/images/fig_networkRouting_example_v1.png" alt="search spaces" 
 width="100%"/><br>
       <sub><b>Figure 1:</b> Fig1</sub>
     </td>

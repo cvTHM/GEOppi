@@ -19,7 +19,7 @@ Three main functionalities ranging from coarse to more granular design phases ar
   <tr>
     <td align="center" width="100%">
       <img src="https://raw.githubusercontent.com/cvTHM/GEOppi/refs/heads/main/docs/images/fig_GEOppi_functionalities_Overview.png" alt="search spaces" 
-width="80%"/><br>
+width="100%"/><br>
       <sub><b>Figure 1:</b> Summary of workflows in the planning process for heating networks which can be supported by GEOppi. Top left: Line density values as attributes of street segments (prerequisite, input data); Top right: Suitable network routings on the basis of two differnt heat demand scenarios; Bottom right: Possible network expansion for two different thermal power budgets of connected heat suppliers; Bottom right: Final network topology with dimensioned pipes and distribution of volumetric flow at a design load point </sub>
     </td>
   </tr>
@@ -116,10 +116,10 @@ Please refer to the template scripts [networkExtension_template.py](https://gith
 A central documentation has not been started yet. Exemplary applications of the functionalities for determination of possible network expansions and the conversion of geo-referenced data into a calculable network model are given in the files [networkExtension_template.py](https://github.com/cvTHM/GEOppi/blob/main/networkExtension_template.py) and [networkModelling_template.py](https://github.com/cvTHM/GEOppi/blob/main/networkModelling_template.py).
 
 ## Contributing
-All contributions to the tool **GEOppi** are warmly welcomed. Refer to the [contribution]() guidelines for more information.
+All contributions to the tool **GEOppi** are warmly welcomed. Refer to the [contribution guidelines](https://github.com/cvTHM/GEOppi/blob/main/CONTRIBUTION_guidelines.md) for more information.
 
 ## License
-The software tool is licensed under the [MIT License](https://github.com/cvTHM/GEOppi/blob/master/LICENSE).
+The software tool is licensed under the [MIT License](https://github.com/cvTHM/GEOppi/blob/main/LICENSE).
 
 ## Citation
 

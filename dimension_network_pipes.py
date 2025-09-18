@@ -384,7 +384,7 @@ def assign_insulation_type(
     :returns: DataFrame of pipes
     """
 
-    # Sources: https://www.jentrofittings.com/sites/jentro/files/insert-file/information_pex.pdf, Handbuch Firma Isoplus (2011)
+    # Sources: https://www.isoplus.group/fileadmin/products/IP_Planungshandbuch_DE.pdf, Handbuch Firma Isoplus (2011)
 
     # Imports
     import pipe_characteristics

@@ -169,12 +169,17 @@ class ppi_HeatConsumerCOPConversionQdem(BasicCtrl):
         convergence = False
 
         # Extract results at active consumers
-        _, qext_source_current = self.get_heatConsumer_states(net = net, idxs = self.heatConsumer_active_idxs)
+        T_from_current, qext_source_current = self.get_heatConsumer_states(net = net, idxs = self.heatConsumer_active_idxs)
 
         qext_source_error = qext_source_current - self.heatConsumer_active_Qdem_source_target
 
         if (all(abs(qext_source_error) <= self.abs_tol)):
             convergence = True
+
+        # Temporary outputs for test purposes
+        net.res_heat_consumer.loc[self.heatConsumer_active_idxs, 'qext_source_w'] = qext_source_current
+        net.res_heat_consumer.loc[self.heatConsumer_active_idxs, 'efficiency'] = self.efficiency[self.heatConsumer_active_idxs]
+        net.res_heat_consumer.loc[self.heatConsumer_active_idxs, 'COP'] = (self.Tsink_heatingSystem[self.heatConsumer_active_idxs] - T_from_current) / self.Tsink_heatingSystem[self.heatConsumer_active_idxs] * self.efficiency[self.heatConsumer_active_idxs]
 
         return convergence
 

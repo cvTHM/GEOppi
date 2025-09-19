@@ -7,11 +7,10 @@ import geopandas as gp
 import pandas as pd
 import pandapipes.toolbox as ppitlbx
 import numpy as np
-import momepy
 from shapely import (set_precision,)
 
 from auxFunctions import (extractPointsFromLines, nnearest, split_lines, split_lines_at_points,
-                          match_polygons_to_points_by_intersection, geodata_from_geometry, extractRasterValsAtPoints, closest_point, checkConnectivity)
+                          match_polygons_to_points_by_intersection, geodata_from_geometry, extractRasterValsAtPoints, checkConnectivity)
 
 def assign_default_values_ppi(
         gdf:gp.GeoDataFrame, 
@@ -178,7 +177,6 @@ def createUniqueJunctions(
     idxs                        = [a.index(i) for i in s]
     points_new_list             = [Point(points_list[i]) for i in idxs] # -> All newly created points, including start-, end- and intermediate points of lines. Duplicates are already removed!
 
-    alljunctions                   = gp.GeoDataFrame(geometry = points_new_list)
 
     # Identify all start- and endpoints BEFORE SPLITTING
     all_startpoints         = [(Point(pp.coords[0]).x, Point(pp.coords[0]).y) for pp in lines['geometry']]
@@ -186,16 +184,14 @@ def createUniqueJunctions(
 
     startendpoints = list(set(all_startpoints + all_endpoints))
 
-    startendjunctions = gp.GeoDataFrame()
-    startendjunctions.geometry = [Point(n) for n in startendpoints]
+    startendjunctions = gp.GeoDataFrame(geometry = [Point(n) for n in startendpoints])
 
     # Intermediate points
     intermediate_points = list(set(intermediateCoords))
-
-    intermediatejunctions = gp.GeoDataFrame()
-    intermediatejunctions.geometry = [Point(n) for n in intermediate_points]
+    intermediatejunctions = gp.GeoDataFrame(geometry = [Point(n) for n in intermediate_points])
 
     # Identify crossing junctions (later used for separation of lines at these junctions) -> Crossing junctions can only exist within intermediate points
+    alljunctions                     = gp.GeoDataFrame(geometry = points_new_list)
     alljunctions['splitting_points'] = alljunctions.apply(lambda p: 
                                         True if ((p.geometry.x, p.geometry.y) in intermediateCoords and (p.geometry.x, p.geometry.y) in startendpoints) or (intermediateCoords.count((p.geometry.x, p.geometry.y)) > 1) else False, axis = 1)
 

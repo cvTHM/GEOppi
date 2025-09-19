@@ -11,16 +11,18 @@ import matplotlib.animation
 from matplotlib.collections import LineCollection, PathCollection
 from pathlib import Path
 
-from customControllers import (ppi_CircPumpMassPthermalCtrl, ppi_CircPumpMassPthermalCtrl_limited, ppi_HeatConsumerSetTempCtrl, ppi_HeatConsumersMinDiffPressureCtrl, ppi_JunctionsMinAbsolutePressureCtrl)
+from customControllers import (ppi_CircPumpMassPthermalCtrl, ppi_CircPumpMassPthermalCtrl_limited, ppi_HeatConsumerSetTempCtrl, ppi_HeatConsumersMinDiffPressureCtrl, ppi_JunctionsMinAbsolutePressureCtrl, ppi_HeatConsumerCOPConversionQdem)
 
 def implement_controllers(
         net,
+        drop_all:bool = False,
         pminCtrlDict:dict = {'create':False, 'pmin_target':1, 'abs_tol':0.1, 'circ_pump_pressure_idx':0,
                               'order':1, 'level':5, 'index':None},
         dpminCtrlDict:dict = {'create':False,'dpmin_target':0.7, 'abs_tol':0.1, 'circ_pump_pressure_idx':0, 'order':0, 'level':5, 'index':None},
         PthCtrlDict:dict = {'create':False,'circ_pump_mass_idxs':None, 'flow_controller_idxs':None, 'Pth_target_kW':1000,'abs_tol':100,  'order':2, 'level':5, 'index':None},
         PthLimitedCtrlDict:dict = {'create':False,'circ_pump_mass_idxs':None, 'circ_pump_pressure_index':None, 'flow_controller_idxs':None, 'Pth_target_kW':1000, 'abs_tol':100, 'order':2, 'level':5, 'priority_list':None, 'index':None},
-        TRefluxHeatConsumerCtrlDict:dict = {'create':False,'T_target':273.15+40, 'abs_tol':1, 'order':0, 'level':-1, 'min_dT':None, 'min_mdot':None, 'index':None}
+        TRefluxHeatConsumerCtrlDict:dict = {'create':False,'T_target':273.15+40, 'abs_tol':1, 'order':0, 'level':-1, 'min_dT':None, 'min_mdot':None, 'index':None},
+        COPConversionQdemConsumerCtrlDict:dict = {'create':False,'efficiency':0.5, 'Tsink':273.15+60, 'deltaTsource':4, 'abs_tol':1, 'order':0, 'level':-1, 'index':None}
         ):
     
 
@@ -39,6 +41,7 @@ def implement_controllers(
     3) arbitrary number of base load producers modelled as circ_pump_const_mass_flow
     
     :param net: pandapipes network object.\n
+    :param drop_all: Boolöean denoting if all exiting controllers ahll be dropped first.\n
     :param pminCtrlDict: dictionary containing keys to parameterize the controller for minimum absolute pressure. Defaults to {'pmin_target':1, 'circ_pump_pressure_idx':0, 'order':0, 'level':2}\n
     :param dpminCtrlDict: dictionary containing keys to parameterize the controller for minimum pressure difference at heat consumers. Defaults to {'dpmin_target':0.7, 'circ_pump_pressure_idx':0, 'order':0, 'level':1}.\n
     :param PthCtrlDict: dictionary containing keys to parameterize the controller for defined thermal power at base load producers (circ_pump_mass components). Defaults to {'circ_pump_mass_idxs':None, 'flow_controller_idxs':None, 'Pth_target_kW':1000, 'order':0, 'level':-5}.\n
@@ -49,8 +52,42 @@ def implement_controllers(
     # Create temporary copy of network
     net_out = net.deepcopy()
 
+    if drop_all:
+        net_out.controller.drop(index = net_out.controller.index, inplace = True)
+
     # Assigning default values for order and level of control strategy
     ### Creating controllers
+
+    ## Control of COP conversion at heat consumer source side thermal power
+    if 'order' not in COPConversionQdemConsumerCtrlDict.keys():
+        COPConversionQdemConsumerCtrlDict['order'] = 0
+    if 'level' not in COPConversionQdemConsumerCtrlDict.keys():
+        COPConversionQdemConsumerCtrlDict['level'] = 0
+    if 'abs_tol' not in COPConversionQdemConsumerCtrlDict.keys():
+        COPConversionQdemConsumerCtrlDict['abs_tol'] = 1
+    if 'Tsink' not in COPConversionQdemConsumerCtrlDict.keys():
+        COPConversionQdemConsumerCtrlDict['Tsink'] = 273.15+60
+    if 'efficiency' not in COPConversionQdemConsumerCtrlDict.keys():
+        COPConversionQdemConsumerCtrlDict['efficiency'] = 0.5
+    if 'create' not in COPConversionQdemConsumerCtrlDict.keys():
+        COPConversionQdemConsumerCtrlDict['create'] = True
+    if 'index' not in COPConversionQdemConsumerCtrlDict.keys():
+        COPConversionQdemConsumerCtrlDict['index'] = None
+    if 'deltaTsource' not in COPConversionQdemConsumerCtrlDict.keys():
+        COPConversionQdemConsumerCtrlDict['deltaTsource'] = 4
+
+    if COPConversionQdemConsumerCtrlDict['create']:
+        controller_COPConversion_Qdem = ppi_HeatConsumerCOPConversionQdem(
+            net = net_out, 
+            efficiency = COPConversionQdemConsumerCtrlDict['efficiency'], 
+            proportional_gain = 0.5, 
+            abs_tol = COPConversionQdemConsumerCtrlDict['abs_tol'], 
+            order = COPConversionQdemConsumerCtrlDict['order'], 
+            level = COPConversionQdemConsumerCtrlDict['level'], 
+            index = COPConversionQdemConsumerCtrlDict['index'],
+            Tsink_heatingSystem = COPConversionQdemConsumerCtrlDict['Tsink'],
+            deltaTsource = COPConversionQdemConsumerCtrlDict['deltaTsource']
+            ) 
 
     ### Control of TReflux in network heat consumers
     if 'order' not in TRefluxHeatConsumerCtrlDict.keys():

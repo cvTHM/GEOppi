@@ -34,6 +34,173 @@ def checkUserPFOptionsThermal(net, ctrlName:str):
 
 ### Definition of custom controllers ###
 
+class ppi_HeatConsumerCOPConversionQdem(BasicCtrl):
+
+    def __init__(self, net, Tsink_heatingSystem:list = [273.15 + 60], efficiency:list = [0.5], deltaTsource:list = [4], heatConsumer_idxs:list = None, abs_tol:float = 0.1, proportional_gain:float = 0.5, order:int = 1, level:int = 1, index:int = None, **kwargs):
+
+        super(ppi_HeatConsumerCOPConversionQdem, self).__init__(net, **kwargs)
+
+        self.Tsink_heatingSystem = Tsink_heatingSystem
+        self.efficiency = efficiency
+        self.initialCOP = 4
+        self.deltaTsource = deltaTsource
+        self.heatConsumer_idxs = heatConsumer_idxs if heatConsumer_idxs is not None else net.heat_consumer.index
+        self.abs_tol = abs_tol
+        self.proportional_gain = proportional_gain
+        self.iterations = 0
+        self.convergence = False
+
+        if index is None and "controller" in net.keys():
+            index = get_free_id(net.controller)
+
+        self.index = self.add_controller_to_net(net = net, in_service = True, initial_run = True, index = index, order = order, level = level, recycle = False, overwrite = True, drop_same_existing_ctrl = True, **kwargs)
+
+        # Assign Tsink_heatingSystem and efficiencies to heat consumers individually (if desired)
+        # Default values for missing entries:
+        ## Tsink_heatingSystem = 273.15+60 K
+        ## efficiency = 0.5
+        ## deltaTsource = 4 K
+
+        if isinstance(Tsink_heatingSystem, list):
+            if len(Tsink_heatingSystem) > len(self.heatConsumer_idxs):
+                self.Tsink_heatingSystem = np.array(Tsink_heatingSystem[:len(self.heatConsumer_idxs)])
+            elif len(Tsink_heatingSystem) < len(self.heatConsumer_idxs):
+                self.Tsink_heatingSystem = np.array(Tsink_heatingSystem.extend(list(np.ones(len(self.heatConsumer_idxs)-len(Tsink_heatingSystem))*(273.15+60))))
+        else:
+            self.Tsink_heatingSystem = np.array([Tsink_heatingSystem] * len(self.heatConsumer_idxs))
+
+        if isinstance(efficiency, list):
+            if len(efficiency) > len(self.heatConsumer_idxs):
+                self.efficiency = np.array(efficiency[:len(self.heatConsumer_idxs)])
+            elif len(efficiency) < len(self.heatConsumer_idxs):
+                self.efficiency = np.array(efficiency.extend(list(np.ones(len(self.heatConsumer_idxs)-len(efficiency))*(0.5))))
+        else:
+            self.efficiency = np.array([efficiency] * len(self.heatConsumer_idxs))   
+
+        if isinstance(deltaTsource, list):
+            if len(deltaTsource) > len(self.heatConsumer_idxs):
+                self.deltaTsource = np.array(deltaTsource[:len(self.heatConsumer_idxs)])
+            elif len(deltaTsource) < len(self.heatConsumer_idxs):
+                self.deltaTsource = np.array(deltaTsource.extend(list(np.ones(len(self.heatConsumer_idxs)-len(deltaTsource))*(4))))
+        else:
+            self.deltaTsource = np.array([deltaTsource] * len(self.heatConsumer_idxs))
+
+        # Write 
+
+        # Save initial conditions of network
+        ## During control step, ccontrolled_mdoit_kg_per_s and qext_w in heat_consumer components are changed
+        net.heat_consumer['controlled_mdot_kg_per_s_init'] = net.heat_consumer['controlled_mdot_kg_per_s'].copy() 
+        net.heat_consumer['qext_w_init'] = net.heat_consumer['qext_w'].copy()       
+
+
+    def add_controller_to_net(self, net, in_service, initial_run, order, level, index, recycle,
+                              drop_same_existing_ctrl, overwrite, **kwargs):
+        """
+        adds the controller to net['controller'] dataframe.
+
+        INPUT:
+            **in_service** (bool) - in service status
+
+            **order** (int) - order
+
+            **index** (int) - index
+
+            **recycle** (bool) - if controller needs a new bbm (ppc, Ybus...) or if it can be used \
+                                 with prestored values. This is mostly needed for time series \
+                                 calculations
+
+        """
+        if drop_same_existing_ctrl:
+            drop_same_type_existing_controllers(net, type(self), index=index, **kwargs)
+        else:
+            log_same_type_existing_controllers(net, type(self), index=index, **kwargs)
+
+        # use base class method to raise an error if the object is in DF and overwrite = False
+        # if the index is None, the base class is in charge of obtaining the next free index in the data frame
+        fill_dict = {"in_service": in_service, "initial_run": initial_run, "recycle": recycle,
+                     "order": order, "level": level}
+        added_index = super().add_to_net(net=net, element='controller', index=index, overwrite=overwrite,
+                           fill_dict=fill_dict, preserve_dtypes=True)
+        return added_index
+
+    def initialize_control(self, net):
+        # Extract indices of heat consumers which are active or inactive -> Definition is based on specified thermal demand
+        self.heatConsumer_active_idxs = list(net.heat_consumer.loc[(net.heat_consumer['qext_w'] > 0) & (~net.heat_consumer['controlled_mdot_kg_per_s'].isna())].index)
+        self.heatConsumer_inactive_idxs = list(set(net.heat_consumer.index).difference(set(self.heatConsumer_active_idxs)))
+
+        # Extract total demanded heating power (sink side) at active consumers
+        ## Assumption: Current thermal demand load on sink side is always written in attribute qext_w for each time step
+        self.heatConsumer_active_Qdem = net.heat_consumer.loc[self.heatConsumer_active_idxs, 'qext_w'].values
+       
+        # Initialization of target source side thermal power extraction
+        self.heatConsumer_active_Qdem_source_target = self.heatConsumer_active_Qdem / self.initialCOP * (self.initialCOP-1)
+
+    
+    def get_heatConsumer_states(self, net, idxs:list):
+
+        T_from = net.res_heat_consumer.loc[idxs, 't_from_k'].values
+        qext_source = net.res_heat_consumer.loc[idxs, 'qext_w'].values
+
+        return T_from, qext_source
+    
+
+    def control_step(self, net):
+
+        self.iterations += 1
+
+        ### Control step is performed for all currently active heat consumers
+
+        # Get current states at active heat consumers
+        T_from_current, qext_source_current = self.get_heatConsumer_states(net = net, idxs = self.heatConsumer_active_idxs)
+
+        # Update current heat capacity of fluid
+        cp = net.fluid.get_heat_capacity(273.15+10)
+
+        # Determine current set source-side extracted power, dependent on current temperature T_from
+        COP_set = (self.Tsink_heatingSystem[self.heatConsumer_active_idxs]) / (self.Tsink_heatingSystem[self.heatConsumer_active_idxs] - T_from_current) * self.efficiency[self.heatConsumer_active_idxs]
+        qext_source_set = self.heatConsumer_active_Qdem / COP_set * (COP_set-1)
+        
+        qext_error = qext_source_set - qext_source_current        
+
+        # Set new values for control step
+        self.heatConsumer_active_Qdem_source_target = qext_source_set
+
+        qext_source_new = qext_source_current + qext_error * self.proportional_gain
+        mdot_source_new = qext_source_new / (cp * self.deltaTsource[self.heatConsumer_active_idxs])
+
+        # Transfer new set values to heat consumer models
+        net.heat_consumer.loc[self.heatConsumer_active_idxs, 'qext_w'] = qext_source_new
+        net.heat_consumer.loc[self.heatConsumer_active_idxs, 'controlled_mdot_kg_per_s'] = mdot_source_new
+
+        return super(ppi_HeatConsumerCOPConversionQdem, self).control_step(net)
+    
+
+    def is_converged(self, net):
+
+        convergence = False
+
+        # Extract results at active consumers
+        _, qext_source_current = self.get_heatConsumer_states(net = net, idxs = self.heatConsumer_active_idxs)
+
+        qext_source_error = qext_source_current - self.heatConsumer_active_Qdem_source_target
+
+        if (all(abs(qext_source_error) <= self.abs_tol)):
+            convergence = True
+            self.convergence = True
+
+        return convergence
+    
+    def finalize_control(self, net):
+        if self.convergence:
+            T_from_current, qext_source_current = self.get_heatConsumer_states(net = net, idxs = self.heatConsumer_active_idxs)
+
+            # Temporary outputs for test purposes
+            net.res_heat_consumer.loc[self.heatConsumer_active_idxs, 'efficiency'] = self.efficiency[self.heatConsumer_active_idxs]
+            net.res_heat_consumer.loc[self.heatConsumer_active_idxs, 'COP'] = self.Tsink_heatingSystem[self.heatConsumer_active_idxs] / (self.Tsink_heatingSystem[self.heatConsumer_active_idxs] - T_from_current) * self.efficiency[self.heatConsumer_active_idxs]
+
+
+
+
 class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
     """
     Class of controller in pandapipes network for...
@@ -88,6 +255,10 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
         # Plausibility check for user-defined pipeflow options
         checkUserPFOptionsThermal(net = net, ctrlName = "ppi_HeatConsumerSetTempCtrl")
 
+        # Save initial conditions of network
+        ## During control step, ccontrolled_mdoit_kg_per_s in heat_cosnumer components is changed
+        net.heat_consumer['controlled_mdot_kg_per_s_init'] = net.heat_consumer['controlled_mdot_kg_per_s'].copy()
+
 
     def add_controller_to_net(self, net, in_service, initial_run, order, level, index, recycle,
                               drop_same_existing_ctrl, overwrite, **kwargs):
@@ -125,9 +296,13 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
         self.heatConsumer_inactive_idxs = list(set(net.heat_consumer.index).difference(set(self.heatConsumer_active_idxs)))
         
         self.cp = net.fluid.get_heat_capacity(self.target_T)
-        self.junction_idxs = net.heat_consumer['from_junction'].values if self.junction_type == 'from_junction' else net.heat_consumer['to_junction'].values  
+        self.junction_idxs = net.heat_consumer['from_junction'].values if self.junction_type == 'from_junction' else net.heat_consumer['to_junction'].values
+
         # Initialize target temperature array for each heat consumer (necessary if individual target has to be modified, e.g. to meet min. temperature difference instead of set temperature)      
         self.target_T_arr = self.target_T * np.ones(len(self.heatConsumer_active_idxs))
+
+        # Initialize target_T_arr in heat_consumer DF
+        net.heat_consumer['target_T'] = np.nan
 
     def is_converged(self, net):
 
@@ -192,9 +367,15 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
         new_mdot = mdot_current + mdot_error * self.proportional_gain
         new_mdot = new_mdot.clip(self.min_mdot, np.inf)
 
+        # Set new controlled mas flow at active heat consumers
         net.heat_consumer.loc[self.heatConsumer_active_idxs, 'controlled_mdot_kg_per_s'] = new_mdot
 
         return super(ppi_HeatConsumerSetTempCtrl, self).control_step(net)
+    
+    def finalize_control(self, net):
+        if self.converged:
+            net.heat_consumer.loc[self.heatConsumer_active_idxs, 'target_T'] = self.target_T_arr
+    
 
 class ppi_CircPumpMassPthermalCtrl(BasicCtrl):
     """
@@ -240,6 +421,11 @@ class ppi_CircPumpMassPthermalCtrl(BasicCtrl):
         # Controller is created and added to network **net**
         self.index = self.add_controller_to_net(net = net, in_service = True, initial_run = True, index = index, order = order, level = level, recycle = False, overwrite = True, drop_same_existing_ctrl = True, **kwargs)
 
+        # Save initial conditions of network
+        ## During control step, circ_pump_mass mass flows and flow_control mass flows are varied
+        net.circ_pump_mass['mdot_flow_kg_per_s_init'] = net.circ_pump_mass['mdot_flow_kg_per_s'].copy()
+        net.flow_control['controlled_mdot_kg_per_s_init'] = net.flow_control['controlled_mdot_kg_per_s'].copy()
+
     
     
     def add_controller_to_net(self, net, in_service, initial_run, order, level, index, recycle,
@@ -275,6 +461,7 @@ class ppi_CircPumpMassPthermalCtrl(BasicCtrl):
 
     def initialize_control(self, net):
 
+        # Define residual mass flow in circ_pump_mass components
         self.mdotmin_circPumpMass = 1e-05
 
 
@@ -383,6 +570,11 @@ class ppi_CircPumpMassPthermalCtrl_limited(BasicCtrl):
 
         # Controller is created and added to network **net**
         self.index = self.add_controller_to_net(net = net, in_service = True, initial_run = True, index = index, order = order, level = level, recycle = False, overwrite = True, drop_same_existing_ctrl = True, **kwargs)
+
+        # Save initial conditions of network
+        ## During control step, circ_pump_mass mass flows and flow_control mass flows are varied
+        net.circ_pump_mass['mdot_flow_kg_per_s_init'] = net.circ_pump_mass['mdot_flow_kg_per_s'].copy()
+        net.flow_control['controlled_mdot_kg_per_s_init'] = net.flow_control['controlled_mdot_kg_per_s'].copy()
 
     
     
@@ -502,13 +694,13 @@ class ppi_CircPumpMassPthermalCtrl_limited(BasicCtrl):
                 if current_mdot_circPumpPressure > 0: # Ensure positive mass flow rate through circ_pump_pressure component
 
                     new_mdot = max(self.mdotmin_circPumpMass, current_mdot + min(current_mdot_potential, mdot_error) * self.proportional_gain)
-                    net.circ_pump_mass.loc[self.circPumpMass_idx, 'mdot_flow_kg_per_s'] = new_mdot
-                    net.flow_control.loc[self.flow_controller_idx, 'controlled_mdot_kg_per_s'] = new_mdot
+                    net.circ_pump_mass['mdot_flow_kg_per_s'].at[self.circPumpMass_idx] = new_mdot
+                    net.flow_control['controlled_mdot_kg_per_s'].at[self.flow_controller_idx] = new_mdot
 
                 else:
                     new_mdot = max(self.mdotmin_circPumpMass, current_mdot + current_mdot_potential * 2) # Make sure circ_pump_pressure component leaves region with negative mass flow
-                    net.circ_pump_mass.loc[self.circPumpMass_idx, 'mdot_flow_kg_per_s'] = new_mdot
-                    net.flow_control.loc[self.flow_controller_idx, 'controlled_mdot_kg_per_s'] = new_mdot
+                    net.circ_pump_mass['mdot_flow_kg_per_s'].at[self.circPumpMass_idx] = new_mdot
+                    net.flow_control['controlled_mdot_kg_per_s'].at[self.flow_controller_idx] = new_mdot
 
         return super(ppi_CircPumpMassPthermalCtrl_limited, self).control_step(net)
     
@@ -612,6 +804,11 @@ class ppi_JunctionsMinAbsolutePressureCtrl(BasicCtrl):
 
         self.index = self.add_controller_to_net(net = net, in_service = True, initial_run = True, index = index, order = order, level = level, recycle = False, overwrite = True, drop_same_existing_ctrl = True, **kwargs)
 
+        # Save initial conditions of network
+        ## During control step, p_flow_bar at circ_pump_pressure components is changed
+        net.circ_pump_pressure['p_flow_bar_init'] = net.circ_pump_pressure['p_flow_bar'].copy()
+        
+
 
     def add_controller_to_net(self, net, in_service, initial_run, order, level, index, recycle,
                               drop_same_existing_ctrl, overwrite, **kwargs):
@@ -654,7 +851,7 @@ class ppi_JunctionsMinAbsolutePressureCtrl(BasicCtrl):
 
         current_pflow = net.circ_pump_pressure['p_flow_bar'].at[self.circPumpPressure_idx]
         new_pflow = current_pflow + pmin_error * self.proportional_gain
-        net.circ_pump_pressure['p_flow_bar'] = new_pflow
+        net.circ_pump_pressure['p_flow_bar'].at[self.circPumpPressure_idx] = new_pflow
 
         return super(ppi_JunctionsMinAbsolutePressureCtrl, self).control_step(net)
     
@@ -724,6 +921,10 @@ class ppi_HeatConsumersMinDiffPressureCtrl(BasicCtrl):
             index = get_free_id(net.controller)
 
         self.index = self.add_controller_to_net(net = net, in_service = True, initial_run = True, index = index, order = order, level = level, recycle = False, overwrite = True, drop_same_existing_ctrl = True, **kwargs)
+
+        # Save initial conditions of network
+        ## During control step, plift_bar at circ_pump_pressure components is changed
+        net.circ_pump_pressure['plift_bar_init'] = net.circ_pump_pressure['plift_bar'].copy()
 
 
     def add_controller_to_net(self, net, in_service, initial_run, order, level, index, recycle,

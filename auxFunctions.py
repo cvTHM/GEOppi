@@ -316,8 +316,8 @@ def extractRasterValsAtPoints(
     j_buff = j.copy()
     j_buff['geometry'] = j_buff.buffer(distance = buff_distance_edited)
 
-    # Find minimum value (e.g. outside house ground surface) within buffer distance around point
-    zs = zonal_stats(j_buff, arr, affine = affine, stats=statsType)
+    # Find minimum value (e.g. outside house ground surface) within buffer distance around point, ignoring nodata/missing data (np.nan in input array)
+    zs = zonal_stats(j_buff, arr, affine = affine, stats=statsType, nodata = -999)
     j[attrCol] = [c[statsType] for c in zs]
 
     return j

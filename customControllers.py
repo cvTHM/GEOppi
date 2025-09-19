@@ -47,6 +47,7 @@ class ppi_HeatConsumerCOPConversionQdem(BasicCtrl):
         self.abs_tol = abs_tol
         self.proportional_gain = proportional_gain
         self.iterations = 0
+        self.convergence = False
 
         if index is None and "controller" in net.keys():
             index = get_free_id(net.controller)
@@ -147,7 +148,7 @@ class ppi_HeatConsumerCOPConversionQdem(BasicCtrl):
         cp = net.fluid.get_heat_capacity(273.15+10)
 
         # Determine current set source-side extracted power, dependent on current temperature T_from
-        COP_set = (self.Tsink_heatingSystem[self.heatConsumer_active_idxs] - T_from_current) / (self.Tsink_heatingSystem[self.heatConsumer_active_idxs]) * self.efficiency[self.heatConsumer_active_idxs]
+        COP_set = (self.Tsink_heatingSystem[self.heatConsumer_active_idxs]) / (self.Tsink_heatingSystem[self.heatConsumer_active_idxs] - T_from_current) * self.efficiency[self.heatConsumer_active_idxs]
         qext_source_set = self.heatConsumer_active_Qdem / COP_set * (COP_set-1)
         
         qext_error = qext_source_set - qext_source_current        
@@ -169,19 +170,25 @@ class ppi_HeatConsumerCOPConversionQdem(BasicCtrl):
         convergence = False
 
         # Extract results at active consumers
-        T_from_current, qext_source_current = self.get_heatConsumer_states(net = net, idxs = self.heatConsumer_active_idxs)
+        _, qext_source_current = self.get_heatConsumer_states(net = net, idxs = self.heatConsumer_active_idxs)
 
         qext_source_error = qext_source_current - self.heatConsumer_active_Qdem_source_target
 
         if (all(abs(qext_source_error) <= self.abs_tol)):
             convergence = True
-
-        # Temporary outputs for test purposes
-        net.res_heat_consumer.loc[self.heatConsumer_active_idxs, 'qext_source_w'] = qext_source_current
-        net.res_heat_consumer.loc[self.heatConsumer_active_idxs, 'efficiency'] = self.efficiency[self.heatConsumer_active_idxs]
-        net.res_heat_consumer.loc[self.heatConsumer_active_idxs, 'COP'] = (self.Tsink_heatingSystem[self.heatConsumer_active_idxs] - T_from_current) / self.Tsink_heatingSystem[self.heatConsumer_active_idxs] * self.efficiency[self.heatConsumer_active_idxs]
+            self.convergence = True
 
         return convergence
+    
+    def finalize_control(self, net):
+        if self.convergence:
+            T_from_current, qext_source_current = self.get_heatConsumer_states(net = net, idxs = self.heatConsumer_active_idxs)
+
+            # Temporary outputs for test purposes
+            net.res_heat_consumer.loc[self.heatConsumer_active_idxs, 'qext_source_w'] = qext_source_current
+            net.res_heat_consumer.loc[self.heatConsumer_active_idxs, 'efficiency'] = self.efficiency[self.heatConsumer_active_idxs]
+            net.res_heat_consumer.loc[self.heatConsumer_active_idxs, 'COP'] = self.Tsink_heatingSystem[self.heatConsumer_active_idxs] / (self.Tsink_heatingSystem[self.heatConsumer_active_idxs] - T_from_current) * self.efficiency[self.heatConsumer_active_idxs]
+
 
 
 
@@ -346,6 +353,7 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
         net.heat_consumer.loc[self.heatConsumer_active_idxs, 'controlled_mdot_kg_per_s'] = new_mdot
 
         return super(ppi_HeatConsumerSetTempCtrl, self).control_step(net)
+    
 
 class ppi_CircPumpMassPthermalCtrl(BasicCtrl):
     """

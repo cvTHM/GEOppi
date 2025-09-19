@@ -29,14 +29,10 @@ ppi.set_user_pf_options(net = netFeedReflux, mode="sequential", friction_model =
 # %%
 
 
-# Initialize
-netFeedReflux.heat_consumer['Pth_kW'] = netFeedReflux.heat_consumer['demand_use_th'] / 1700
-
-
 # Define control targets
 circ_pump_pressure_idx = 0
 
-dpmin_target = 1.2 # bar
+dpmin_target = 1 # bar
 pmin_target = 1.5 # bar
 
 # Create controllers 
@@ -63,12 +59,12 @@ netFeedReflux = implement_controllers(
         },
     COPConversionQdemConsumerCtrlDict = {
         'create':True,
-        'abs_tol':1,
+        'abs_tol':100,
         'order':0,
         'level':4,
-        'Tsink':273.15+60,
-        'deltaTsource':5,
-        'efficiency':0.5
+        'Tsink':273.15+50,
+        'deltaTsource':6,
+        'efficiency':0.48
     }
     )
 
@@ -83,7 +79,7 @@ netFeedReflux = transfer_LoadPoint_ppi(
         tFeed = tFeed,
         tReflux = tReflux,
         text_pipes = 280,
-        pNetwork = 2,
+        pNetwork = 5,
         heatingDemandAttr = 'demand_use_th',
         thermalPowerAttr = 'Pth_kW',
         thermalPowerAttrConsumers = 'Pth_kW',
@@ -99,3 +95,4 @@ run_control(net = netFeedReflux,  max_iter = 50)
 # %%
 
 
+netFeedReflux.res_heat_consumer.head(10)

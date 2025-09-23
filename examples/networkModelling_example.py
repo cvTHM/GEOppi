@@ -9,14 +9,23 @@ import os
 import rasterio
 from pathlib import Path
 
+<<<<<<< HEAD:networkModelling_template.py
 from auxFunctions import (get_dict_from_aggregated_groups)
 from create_network_topology import (create_ppi_network_from_gdf, )
 from suitable_network_routing import (MST_gdf_subset, )
 from dimension_network_pipes import (update_ppi_results, assign_insulation_type, hydraulicDimensioningNetwork_singleLoadPoint, assign_nominal_widths_manually)
 from internal_auxFunctions import (extract_FluidProperties_ppi, transfer_LoadPoint_ppi, )
 
+=======
+from geoppi.auxFunctions import (get_dict_from_aggregated_groups)
+from geoppi.create_network_topology import (create_ppi_network_from_gdf,)
+from geoppi.suitable_network_routing import (MST_gdf_subset, sum_heat_demands_to_closest_supplier)
+from geoppi.dimension_network_pipes import (update_ppi_results, assign_insulation_type, hydraulicDimensioningNetwork_singleLoadPoint, assign_nominal_widths_manually)
+from geoppi.internal_auxFunctions import (extract_FluidProperties_ppi, transfer_LoadPoint_ppi, implement_controllers)
+from pandapipes.control import run_control
+>>>>>>> develop_maintainer:examples/networkModelling_example.py
 
-from pipe_characteristics import load_hydraulic_pipe_characteristics
+from geoppi.pipe_characteristics import load_hydraulic_pipe_characteristics
 
 
 # %% Load data
@@ -32,10 +41,10 @@ save_network = True
 
 ### Filepaths
 # Input path
-flp = Path(r'exampleNetwork')
+flp = Path(r'examples/data/exampleNetwork')
 
 # output path
-flp_out = Path(r'exampleNetwork\results')
+flp_out = flp / Path(r'results')
 
 if not os.path.exists(flp_out):
     os.makedirs(flp_out)
@@ -98,7 +107,7 @@ pNetwork = 8
 valves_closed = [-1]
 
 # Full load hours for calculation of heating power from consumers' heating demand
-flh = (1700/0.78)
+flh = (1700)
 
 # Define attribute name containing information about thermal power (kW) of producers in producer models
 thermalPowerAttr = 'Pth_kW'
@@ -113,7 +122,7 @@ baseLoadProdNaming = 'prod'
 dp_spec = 100
 
 # Selection of subset for nominal widths for pipes
-subsetDistribution = [65, 80, 100, 125, 150, 200, 225, 250, 300, 350]
+subsetDistribution = [50, 65, 80, 100, 125, 150, 200, 225, 250, 300, 350]
 subsetConnection = [32, 40, 50, 65, 80, 100, 125, 150, 200, 225, 300]
 
 # Desired insulation for pipes
@@ -312,7 +321,7 @@ netFeedReflux = create_ppi_network_from_gdf(
 )
 
 # Set user-defined pipeflow option for sequential calculation!
-ppi.set_user_pf_options(net = netFeedReflux, mode="sequential", friction_model = friction_model, quit_on_inconsistency_connectivity=True, reset = True)
+ppi.set_user_pf_options(net = netFeedReflux, reset = True, mode='sequential', friction_model = friction_model, quit_on_inconsistency_connectivity=True)
 
 netFeedReflux = transfer_LoadPoint_ppi(
     net = netFeedReflux,
@@ -337,3 +346,144 @@ netFeedReflux = update_ppi_results(
 
 # ppi.to_pickle(net = netFeedReflux, filename = str(flp_out / Path('netFeedReflux_dimensioned_manually_final.p')))
 # gp.GeoDataFrame(netFeedReflux.pipe, geometry = 'geometry').to_file(flp_out / Path('netFeedReflux_dimensioned_manually_final_pipes.gpkg'), driver = 'GPKG')
+
+
+# %% Analysis of summed heat demands along paths from heat consumers to closest heat supplier
+
+netFeedReflux = ppi.from_pickle(str(flp_out / Path('netFeedReflux_dimensioned_manually_final.p')))
+
+# Prepare dataframe to convert
+## Keep opened valves
+weightAttr = 'length_km'
+colsToKeep = ['from_junction', 'to_junction', weightAttr, 'geometry']
+
+if hasattr(netFeedReflux, 'valve'):
+
+    DF_edges = pd.concat((
+        netFeedReflux.pipe[netFeedReflux.pipe['Layer'] == 'feedLine'][[n for n in colsToKeep if n in netFeedReflux.pipe.columns]], 
+        netFeedReflux.valve[(netFeedReflux.valve['Layer'] == 'feedLine') & (netFeedReflux.valve['opened'] == True)][[n for n in colsToKeep if n in netFeedReflux.valve.columns]]
+        ), axis = 0)
+    
+else:
+    DF_edges = netFeedReflux.pipe[netFeedReflux.pipe['Layer'] == 'feedLine'][[n for n in colsToKeep if n in netFeedReflux.pipe.columns]]
+
+DF_edges.loc[DF_edges[weightAttr].isna(), weightAttr] = 0
+
+DF_out = sum_heat_demands_to_closest_supplier(
+    edgelist = DF_edges,
+    sources = 'from_junction',
+    targets = 'to_junction',
+    startNodes = netFeedReflux.circ_pump_pressure['flow_junction'].to_list() + [netFeedReflux.flow_control.loc[0, 'to_junction']],
+    endNodes = list(netFeedReflux.heat_consumer['from_junction']),
+    weight = weightAttr,
+    outAttr_weight = 'summed_demand_use_th',
+    dictAttrsEndNodes = dict(zip(netFeedReflux.heat_consumer['from_junction'], netFeedReflux.heat_consumer['demand_use_th'].fillna(0)))
+)
+
+
+gdf = gp.GeoDataFrame(DF_out, geometry = 'geometry').set_crs(cs)
+fig, ax1 = plt.subplots(1, figsize = (30,20))
+
+styles = {'linewidth':5}
+xfont = {'fontsize': 20, 'weight':'normal'}  # Font for axes
+tfont = {'fontsize': 20}  # Font for title
+
+ax1.set_title('Summed annual heat demand (kWh)\nfrom closest heat supplier to heat consumers', **tfont)
+gdf.plot(
+    ax = ax1, 
+    column = 'summed_demand_use_th', 
+    cmap=plt.get_cmap('magma'),
+    vmin = 0,
+    vmax = gdf['summed_demand_use_th'].max()*0.75, 
+    legend = True,
+    **styles)
+
+
+# %% Implement controllers
+# Define control targets
+circ_pump_pressure_idx = 0
+
+dpmin_target = 1.2 # bar
+pmin_target = 1.5 # bar
+
+# Create controllers 
+netFeedReflux = implement_controllers(
+    net = netFeedReflux,
+    drop_all = True,
+    pminCtrlDict = {
+        'create':True, 
+        'pmin_target':pmin_target, 
+        'circ_pump_pressure_idx':circ_pump_pressure_idx,
+        'abs_tol':0.1,
+        'order':1,
+        'level':5
+        },
+    dpminCtrlDict = { # Lowest control order in level 5 = highest priority in level 5
+        'create':True, 
+        'dpmin_target':dpmin_target, 
+        'circ_pump_pressure_idx':circ_pump_pressure_idx,
+        'index':1,
+        'abs_tol':0.1,
+        'order':0,
+        'level':5
+        },
+    TRefluxHeatConsumerCtrlDict = { # Lowest control level = highest priority
+        'create':True,
+        'T_target':tReflux + 273.15,
+        'min_mdot':0.015,
+        'min_dT':3,
+        'abs_tol':1,
+        'order':0,
+        'level':-1
+        },
+    PthLimitedCtrlDict = {
+        'create':True,
+        'circ_pump_mass_idxs':netFeedReflux.circ_pump_mass.index, 
+        'circ_pump_pressure_index':circ_pump_pressure_idx, 
+        'flow_controller_idxs':netFeedReflux.flow_control.index,
+        'Pth_target_kW':netFeedReflux.circ_pump_mass['Pth_kW'].values, 
+        'priority_list':[0],
+        'abs_tol':5000,
+        'order':5,
+        'level':5
+        }
+    )
+
+print(netFeedReflux.controller)
+
+# Run pipeflow with controls
+run_control(net = netFeedReflux,  max_iter = 50)
+
+
+# %%
+# Print exemplary results
+netFeedReflux.res_heat_consumer['dp_bar'] = netFeedReflux.res_heat_consumer['p_from_bar'] - netFeedReflux.res_heat_consumer['p_to_bar']
+dpmin_reached, idx_dpmin = min(list(zip(netFeedReflux.res_heat_consumer['dp_bar'], netFeedReflux.res_heat_consumer.index)), key = lambda x: x[0])
+
+buildIDD = netFeedReflux.heat_consumer['build_ID'].at[idx_dpmin]
+
+print(f'\n### dpmin reached = {dpmin_reached} bar. Target value is {dpmin_target} bar; at heat_consumer with index {idx_dpmin} and build_ID = {buildIDD} ###\n')
+
+###
+pmin_reached = min(netFeedReflux.res_junction['p_bar'])
+print(f'\n### pmin reached is {pmin_reached} bar. Target value is {pmin_target} bar.')
+
+###
+import pandas as pd
+pd.cut(netFeedReflux.res_heat_consumer['t_to_k'], np.arange(tReflux + 273.15 - 2, tReflux + 273.15 + 2, 0.25)).value_counts(normalize = True)
+
+# netFeedReflux.pipe['mdot_from_kg_per_s'] = netFeedReflux.res_pipe['mdot_from_kg_per_s']
+
+# gp.GeoDataFrame(netFeedReflux.pipe, geometry = 'geometry').set_crs(cs).to_file(flp_out / Path('netFeedReflux_dimensioned_manually_final_controlled_pipes.gpkg'), driver = 'GPKG')
+
+# netFeedReflux.heat_consumer['t_from_k'] = netFeedReflux.res_heat_consumer['t_from_k']
+# netFeedReflux.heat_consumer['t_to_k'] = netFeedReflux.res_heat_consumer['t_to_k']
+
+# netFeedReflux.heat_consumer['dp_bar'] = netFeedReflux.res_heat_consumer['p_from_bar'] - netFeedReflux.res_heat_consumer['p_to_bar']
+
+# gp.GeoDataFrame(netFeedReflux.heat_consumer, geometry = 'geometry').set_crs(cs).to_file(flp_out / Path('netFeedReflux_dimensioned_manually_final_controlled_heat_consumers.gpkg'), driver = 'GPKG')
+
+# netFeedReflux.junction['t_k'] = netFeedReflux.res_junction['t_k']
+# netFeedReflux.junction['p_bar'] = netFeedReflux.res_junction['p_bar']
+
+# gp.GeoDataFrame(netFeedReflux.junction, geometry = 'geometry').set_crs(cs).to_file(flp_out / Path('netFeedReflux_dimensioned_manually_final_controlled_junctions.gpkg'), driver = 'GPKG')

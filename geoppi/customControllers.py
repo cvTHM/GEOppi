@@ -23,8 +23,10 @@ def checkUserPFOptionsThermal(net, ctrlName:str):
             if pf_options['mode'] not in ('sequential', 'bidirectional', 'all', 'heat'): # Check if heat transfer calculation is included in user-defined pipeflow options
                 modee = pf_options['mode']
                 print(f'\n### Attention: Defined mode in user_pf_options of the network {modee} does not include heat transfer calculations. Make sure to set mode to any of ("sequential", "bidirectional", "all", "heat") as this is necessary for the defined controller type {ctrlName}. ###\n')
+            
         else:
             print(f'\n### Attention: No user-defined option "mode" in user_pf_options found. Make sure to include mode from any of ("sequential", "bidirectional", "all", "heat") in user_pf_options as this is necessary for the defined controller type {ctrlName}. ###\n')
+
     else:
         print(f'\n### Attention: No user-defined options in user_pf_options found. Make sure to include mode from any of ("sequential", "bidirectional", "all", "heat") in user_pf_options as this is necessary for the defined controller type {ctrlName}. ###\n')
 
@@ -254,6 +256,11 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
 
         # Plausibility check for user-defined pipeflow options
         checkUserPFOptionsThermal(net = net, ctrlName = "ppi_HeatConsumerSetTempCtrl")
+        ppi.set
+
+        # Save initial conditions of network
+        ## During control step, ccontrolled_mdoit_kg_per_s in heat_cosnumer components is changed
+        net.heat_consumer['controlled_mdot_kg_per_s_init'] = net.heat_consumer['controlled_mdot_kg_per_s'].copy()
 
         # Save initial conditions of network
         ## During control step, ccontrolled_mdoit_kg_per_s in heat_cosnumer components is changed
@@ -291,6 +298,9 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
         return added_index
     
     def initialize_control(self, net):
+
+        self.convergence = False
+
         # Extract indices of heat consumers which are active or inactive -> Definition is based on specified thermal demand
         self.heatConsumer_active_idxs = list(net.heat_consumer.loc[(net.heat_consumer['qext_w'] > 0) & (~net.heat_consumer['controlled_mdot_kg_per_s'].isna())].index)
         self.heatConsumer_inactive_idxs = list(set(net.heat_consumer.index).difference(set(self.heatConsumer_active_idxs)))
@@ -321,6 +331,7 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
 
         if (all(abs(T_error) <= self.abs_tol)) | (all(mdot_from_current[np.where(abs(T_error) > self.abs_tol)[0]] == self.min_mdot)):
             convergence = True
+            self.convergence = True
 
         return convergence
     
@@ -373,7 +384,11 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
         return super(ppi_HeatConsumerSetTempCtrl, self).control_step(net)
     
     def finalize_control(self, net):
+<<<<<<< HEAD:customControllers.py
         if self.converged:
+=======
+        if self.convergence:
+>>>>>>> develop_maintainer:geoppi/customControllers.py
             net.heat_consumer.loc[self.heatConsumer_active_idxs, 'target_T'] = self.target_T_arr
     
 

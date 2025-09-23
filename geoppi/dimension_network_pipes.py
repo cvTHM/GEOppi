@@ -2,7 +2,7 @@ import pandapipes as ppi
 import numpy as np
 import pandas as pd
 
-from auxFunctions import (cycleEdges, get_closest_value, get_next_higher_value, func_nikuradse, func_swameejain)
+from geoppi.auxFunctions import (cycleEdges, get_next_higher_value, func_nikuradse, func_swameejain)
 
 
 def hydraulicDimensioningNetwork_singleLoadPoint(
@@ -140,7 +140,7 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
     
     ### Preparations
     # Define simulation options from input
-    user_pf_options = {'mode':'hydraulics', 'friction_model':frictionModel}
+    user_pf_options = {'mode':'hydraulics', 'friction_model':frictionModel, 'reset':True,'quit_on_inconsistency_connectivity':True}
     ppi.set_user_pf_options(net = net, **user_pf_options)
 
     # Get indices of selected nominal widths for distribution pipes and house connection pipes in provided dictionaries
@@ -151,8 +151,8 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
     dictNominalInnerDiameter_red['connectionPipes'] = {k:v for k,v in dictNominalInnerDiameter['connectionPipes'].items() if k in subsetConnection}
 
     # Initialisation of nominal widths for pipes
-    initNWDistribution = max(subsetDistribution)
-    initNWConnection = max(subsetConnection)
+    initNWDistribution = subsetDistribution[len(subsetDistribution)//2]
+    initNWConnection = subsetConnection[len(subsetConnection)//2]
 
     net.pipe[nominalWidthAttr]      = net.pipe.apply(lambda pipe: initNWDistribution if pipe[connectionTypeAttr] == 'distribution' else initNWConnection, axis = 1)
     net.pipe['diameter_m']          = net.pipe.apply(lambda x: 1/1e3 * (dictNominalInnerDiameter['distributionPipes'][x[nominalWidthAttr]] if x[connectionTypeAttr] == 'distribution' else dictNominalInnerDiameter['connectionPipes'][x[nominalWidthAttr]]), axis = 1)
@@ -387,7 +387,7 @@ def assign_insulation_type(
     # Sources: https://www.isoplus.group/fileadmin/products/IP_Planungshandbuch_DE.pdf, Handbuch Firma Isoplus (2011)
 
     # Imports
-    import pipe_characteristics
+    from geoppi import pipe_characteristics
     import numpy as np
 
     # Temporary copy
@@ -758,10 +758,7 @@ def update_ppi_results(
     
     """
 
-    ### Imports
-    import pandapipes.toolbox as ppitlbx
-
-    ### Plausibility checks
+    ### Plausibility checks for user pipeflow options
     if user_pf_options['friction_model'] not in ('colebrook', 'swamee-jain', 'nikuradse'):
         print('\n### Choose proper frictionModel for hydraulic calculations. Implemented values are "colebrook", "swamee-jain" and "nikuradse". Aborting... ###')
         return net
@@ -770,9 +767,12 @@ def update_ppi_results(
         print('\n### Choose proper calculation mode for pandapipes simulation. Either "hydraulics" for only hydraulic calculation or "all" for subsequent hydraulic and thermalcalculation is implemented. ###')
         return net
     
+    # Store user pf options and later restore them
+    orig_pf_options = net.user_pf_options.copy()    
+    
     ### Preparations
     net = net.deepcopy()
-    ppi.set_user_pf_options(net = net, **user_pf_options)
+    ppi.set_user_pf_options(net = net, reset = True, **user_pf_options)
 
     # Control of junction heights
     if respectHeight == False:
@@ -815,6 +815,10 @@ def update_ppi_results(
 
                     else:
                         comp[val] = compRes[val]
+
+
+    # Restore user pf options
+    ppi.set_user_pf_options(net = net, reset = True, **orig_pf_options)
     
     return net
 

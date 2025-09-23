@@ -7,9 +7,6 @@ import numpy as np
 import networkx as nx
 import momepy
 
-<<<<<<< HEAD:suitable_network_routing.py
-from auxFunctions import (closest_point, sort_with_permutation,)
-=======
 from geoppi.auxFunctions import (closest_point, sort_with_permutation,)
 
 ### Functions for analysis of shortest path lengths between specified sets of start- and end nodes and summed weights
@@ -187,7 +184,6 @@ def sum_heat_demands_to_closest_supplier(
     edgelist_out[outAttr_weight] = edgelist_out.apply(lambda x: edge_attr_dict[x[edge_key]] if x[edge_key] in edge_attr_dict.keys() else 0, axis = 1)
 
     return edgelist_out
->>>>>>> develop_maintainer:geoppi/suitable_network_routing.py
 
 ### BFS ###
 def network_span_bfs(

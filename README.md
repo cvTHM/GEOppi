@@ -105,6 +105,7 @@ An **automatic pipe dimensioning routine** is selectable - pipe data for commerc
 - [GeoPandas](https://github.com/geopandas/geopandas)
 - [Rasterio](https://github.com/rasterio/rasterio)
 - [networkx](https://github.com/networkx/networkx)
+- [momepy](https://github.com/pysal/momepy)
 
 **Used input data types**
 - Geo-referenced data are taken as inputs and given as outputs in GPKG format (applies to all geometry objects)

@@ -384,11 +384,7 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
         return super(ppi_HeatConsumerSetTempCtrl, self).control_step(net)
     
     def finalize_control(self, net):
-<<<<<<< HEAD:customControllers.py
-        if self.converged:
-=======
         if self.convergence:
->>>>>>> develop_maintainer:geoppi/customControllers.py
             net.heat_consumer.loc[self.heatConsumer_active_idxs, 'target_T'] = self.target_T_arr
     
 

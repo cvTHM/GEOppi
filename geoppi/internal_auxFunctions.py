@@ -11,11 +11,7 @@ import matplotlib.animation
 from matplotlib.collections import LineCollection, PathCollection
 from pathlib import Path
 
-<<<<<<< HEAD:internal_auxFunctions.py
-from customControllers import (ppi_CircPumpMassPthermalCtrl, ppi_CircPumpMassPthermalCtrl_limited, ppi_HeatConsumerSetTempCtrl, ppi_HeatConsumersMinDiffPressureCtrl, ppi_JunctionsMinAbsolutePressureCtrl, ppi_HeatConsumerCOPConversionQdem)
-=======
 from geoppi.customControllers import (ppi_CircPumpMassPthermalCtrl, ppi_CircPumpMassPthermalCtrl_limited, ppi_HeatConsumerSetTempCtrl, ppi_HeatConsumersMinDiffPressureCtrl, ppi_JunctionsMinAbsolutePressureCtrl, ppi_HeatConsumerCOPConversionQdem)
->>>>>>> develop_maintainer:geoppi/internal_auxFunctions.py
 
 def implement_controllers(
         net,

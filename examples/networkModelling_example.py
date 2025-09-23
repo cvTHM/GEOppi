@@ -1,29 +1,22 @@
 # %% Imports
-
-
-import geopandas as gp
-import pandapipes as ppi
-import numpy as np
 import os
+import sys
+
+parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parentdir not in sys.path:
+    sys.path.insert(0, parentdir)
 
 import rasterio
 from pathlib import Path
-
-<<<<<<< HEAD:networkModelling_template.py
-from auxFunctions import (get_dict_from_aggregated_groups)
-from create_network_topology import (create_ppi_network_from_gdf, )
-from suitable_network_routing import (MST_gdf_subset, )
-from dimension_network_pipes import (update_ppi_results, assign_insulation_type, hydraulicDimensioningNetwork_singleLoadPoint, assign_nominal_widths_manually)
-from internal_auxFunctions import (extract_FluidProperties_ppi, transfer_LoadPoint_ppi, )
-
-=======
+import geopandas as gp
+import pandapipes as ppi
+import numpy as np
 from geoppi.auxFunctions import (get_dict_from_aggregated_groups)
 from geoppi.create_network_topology import (create_ppi_network_from_gdf,)
 from geoppi.suitable_network_routing import (MST_gdf_subset, sum_heat_demands_to_closest_supplier)
 from geoppi.dimension_network_pipes import (update_ppi_results, assign_insulation_type, hydraulicDimensioningNetwork_singleLoadPoint, assign_nominal_widths_manually)
 from geoppi.internal_auxFunctions import (extract_FluidProperties_ppi, transfer_LoadPoint_ppi, implement_controllers)
 from pandapipes.control import run_control
->>>>>>> develop_maintainer:examples/networkModelling_example.py
 
 from geoppi.pipe_characteristics import load_hydraulic_pipe_characteristics
 
@@ -41,7 +34,7 @@ save_network = True
 
 ### Filepaths
 # Input path
-flp = Path(r'examples/data/exampleNetwork')
+flp = parentdir / Path(r'examples/data/exampleNetwork')
 
 # output path
 flp_out = flp / Path(r'results')
@@ -344,13 +337,8 @@ netFeedReflux = update_ppi_results(
 )
 
 
-# ppi.to_pickle(net = netFeedReflux, filename = str(flp_out / Path('netFeedReflux_dimensioned_manually_final.p')))
-# gp.GeoDataFrame(netFeedReflux.pipe, geometry = 'geometry').to_file(flp_out / Path('netFeedReflux_dimensioned_manually_final_pipes.gpkg'), driver = 'GPKG')
-
-
 # %% Analysis of summed heat demands along paths from heat consumers to closest heat supplier
-
-netFeedReflux = ppi.from_pickle(str(flp_out / Path('netFeedReflux_dimensioned_manually_final.p')))
+import pandas as pd
 
 # Prepare dataframe to convert
 ## Keep opened valves

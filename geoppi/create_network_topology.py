@@ -9,11 +9,7 @@ import pandapipes.toolbox as ppitlbx
 import numpy as np
 from shapely import (set_precision,)
 
-<<<<<<< HEAD:create_network_topology.py
-from auxFunctions import (extractPointsFromLines, nnearest, split_lines, split_lines_at_points,
-=======
 from geoppi.auxFunctions import (extractPointsFromLines, nnearest, split_lines, split_lines_at_points,
->>>>>>> develop_maintainer:geoppi/create_network_topology.py
                           match_polygons_to_points_by_intersection, geodata_from_geometry, extractRasterValsAtPoints, checkConnectivity)
 
 def assign_default_values_ppi(

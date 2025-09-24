@@ -105,16 +105,15 @@ An **automatic pipe dimensioning routine** is selectable - pipe data for commerc
 - [GeoPandas](https://github.com/geopandas/geopandas)
 - [Rasterio](https://github.com/rasterio/rasterio)
 - [networkx](https://github.com/networkx/networkx)
-- [momepy](https://github.com/pysal/momepy)
 
 **Used input data types**
 - Geo-referenced data are taken as inputs and given as outputs in GPKG format (applies to all geometry objects)
 
 ## Quick start
-Please refer to the template scripts [networkExtension_template.py](https://github.com/cvTHM/GEOppi/blob/main/networkExtension_template.py) and [networkModelling_template.py](https://github.com/cvTHM/GEOppi/blob/main/networkModelling_template.py) for a quick start.
+Please refer to the template scripts [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/examples/networkExtension_example.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/examples/networkModelling_example.py) for a quick start.
 
 ## Documentation
-A central documentation has not been started yet. Exemplary applications of the functionalities for determination of possible network expansions and the conversion of geo-referenced data into a calculable network model are given in the files [networkExtension_template.py](https://github.com/cvTHM/GEOppi/blob/main/networkExtension_template.py) and [networkModelling_template.py](https://github.com/cvTHM/GEOppi/blob/main/networkModelling_template.py).
+A central documentation has not been started yet. Exemplary applications of the functionalities for determination of possible network expansions and the conversion of geo-referenced data into a calculable network model are given in the files [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/examples/networkExtension_template.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/examples/networkModelling_template.py).
 
 ## Contributing
 All contributions to the tool **GEOppi** are warmly welcomed. Refer to the [contribution guidelines](https://github.com/cvTHM/GEOppi/blob/main/CONTRIBUTION_guidelines.md) for more information.

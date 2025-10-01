@@ -28,6 +28,63 @@ cp_fluid, rho_fluid, nu_fluid, g = extract_FluidProperties_ppi(net = netFeedRefl
 ppi.set_user_pf_options(net = netFeedReflux, mode="sequential", friction_model = 'swamee-jain', quit_on_inconsistency_connectivity=True, reset = True)
 
 
+# %% Calculate thermal losses to environment in pipes
+
+# netFeedReflux.res_pipe
+
+
+def calc_thermalLoss_pipe(
+        net
+    ):
+
+    """
+    Function that calculates pipe-specific thermal loss power in pandapipes network model.\n
+
+    :param net: pandapipes network model with existing res_pipe DataFrame (available after thermal pipeflow).\n
+    :return: network instance
+    """
+
+    # Initializations
+    if hasattr(net, 'res_pipe'):
+        mdot = net.res_pipe['mdot_from_kg_per_s'].values
+
+        reverseFlow = np.where(mdot < 0)
+        mask = np.ones(mdot.shape[0], dtype=bool)
+        mask[reverseFlow] = False
+
+        tFrom = net.res_pipe['t_from_k'].values
+        tFrom[~mask] = net.res_pipe['t_to_k'].values[~mask]
+
+        tTo = net.res_pipe['t_outlet_k'].values
+
+        cp = net.fluid.get_heat_capacity((tFrom + tTo)/2)
+
+        qloss = abs(mdot) * cp * (tTo - tFrom)
+
+        net.res_pipe['Pthermal_W'] = qloss
+
+    else:
+        pass
+
+    return net
+
+ppi.pipeflow(net = netFeedReflux, mode = 'sequential')
+
+net = calc_thermalLoss_pipe(net = netFeedReflux)
+
+net.res_circ_pump_pressure['t_mean'] = (net.res_circ_pump_pressure['t_from_k'].values + net.res_circ_pump_pressure['t_to_k'].values) / 2
+
+net.res_circ_pump_mass['t_mean'] = (net.res_circ_pump_mass['t_from_k'].values + net.res_circ_pump_mass['t_to_k'].values) / 2
+
+Qloss = (net.res_circ_pump_pressure['t_to_k'].values - net.res_circ_pump_pressure['t_from_k'].values) * net.res_circ_pump_pressure['mdot_from_kg_per_s'].values * net.fluid.get_heat_capacity(net.res_circ_pump_pressure['t_mean'].values) \
++ (net.res_circ_pump_mass['t_to_k'].values - net.res_circ_pump_mass['t_from_k'].values) * net.res_circ_pump_mass['mdot_from_kg_per_s'].values * net.fluid.get_heat_capacity(net.res_circ_pump_mass['t_mean'].values) \
+- np.nansum(net.res_heat_consumer['qext_w'])
+
+import numpy as np
+print(f'### Thermal loss calculated from pipes: {np.nansum(net.res_pipe['Pthermal_W'])} W ###')
+print(f'### Thermal loss calculated from producers and consumers: {np.nansum(Qloss)}')
+
+
 # %% Scratch function for summing up heat demands along path to closest heat supply site
 import numpy as np
 import networkx as nx

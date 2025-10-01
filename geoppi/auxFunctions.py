@@ -5,6 +5,41 @@ import numpy as np
 import rasterio as rio
 import networkx as nx
 
+def calc_thermalLoss_pipe(
+        net
+    ):
+
+    """
+    Function that calculates pipe-specific thermal loss power in pandapipes network model.\n
+
+    :param net: pandapipes network model with existing res_pipe DataFrame (available after thermal pipeflow).\n
+    :return: network instance
+    """
+
+    # Initializations
+    if hasattr(net, 'res_pipe'):
+        mdot = net.res_pipe['mdot_from_kg_per_s'].values
+
+        reverseFlow = np.where(mdot < 0)
+        mask = np.ones(mdot.shape[0], dtype=bool)
+        mask[reverseFlow] = False
+
+        tFrom = net.res_pipe['t_from_k'].values
+        tFrom[~mask] = net.res_pipe['t_to_k'].values[~mask]
+
+        tTo = net.res_pipe['t_outlet_k'].values
+
+        cp = net.fluid.get_heat_capacity((tFrom + tTo)/2)
+
+        qloss = abs(mdot) * cp * (tTo - tFrom)
+
+        net.res_pipe['Pthermal_W'] = qloss
+
+    else:
+        pass
+
+    return net
+
 def extractPointsFromLines(
         lines:gp.GeoDataFrame,
         onlyIntermediate:bool = False

@@ -5,9 +5,8 @@ import geopandas as gp
 import pandas as pd
 import numpy as np
 import networkx as nx
-import momepy
 
-from geoppi.auxFunctions import (closest_point, sort_with_permutation,)
+from geoppi.auxFunctions import (closest_point, sort_with_permutation, gdf_to_nx, nx_to_gdf, )
 
 ### Functions for analysis of shortest path lengths between specified sets of start- and end nodes and summed weights
 def shortest_paths_pathweights(
@@ -278,9 +277,9 @@ def network_span_bfs(
         else:
             sortMethod = 'descending'
 
-        G = momepy.gdf_to_nx(lines.sort_values(by = sortByAttr, ascending = True if sortMethod == 'ascending' else False), approach="primal")
+        G = gdf_to_nx(lines.sort_values(by = sortByAttr, ascending = True if sortMethod == 'ascending' else False), approach="primal")
     else:
-        G = momepy.gdf_to_nx(lines, approach="primal") 
+        G = gdf_to_nx(lines, approach="primal") 
 
 
     # Defining startpoints
@@ -380,7 +379,7 @@ def network_span_bfs(
     ### Convert graphs into GeoDataFrames and return them
     for n, G_b in enumerate(list_G):
 
-        nodes, edges, sw = momepy.nx_to_gdf(G_b, points=True, lines=True, spatial_weights=True)
+        nodes, edges, sw = nx_to_gdf(G_b, points=True, lines=True, spatial_weights=True)
         edges = edges[[col for col in edges.columns if col in list(lines.columns) + ['order']]]
 
         # Assign additional columns
@@ -759,9 +758,9 @@ def network_span_dfs_level_search(
         else:
             sortMethod = 'descending'
 
-        G = momepy.gdf_to_nx(lines.sort_values(by = sortByAttr, ascending = True if sortMethod == 'ascending' else False), approach="primal")
+        G = gdf_to_nx(lines.sort_values(by = sortByAttr, ascending = True if sortMethod == 'ascending' else False), approach="primal")
     else:
-        G = momepy.gdf_to_nx(lines, approach="primal") 
+        G = gdf_to_nx(lines, approach="primal") 
     
     # Defining startpoints
     if startpoints is None:
@@ -852,7 +851,7 @@ def network_span_dfs_level_search(
     # Convert graphs to geopandas DataFrame and return them
     for n, G_b in enumerate(list_G):
 
-        nodes, edges, sw = momepy.nx_to_gdf(G_b, points=True, lines=True, spatial_weights=True)
+        nodes, edges, sw = nx_to_gdf(G_b, points=True, lines=True, spatial_weights=True)
         edges = edges[[col for col in edges.columns if col in list(lines.columns) + ['order', 'level']]]
         
         # Assign additional columns
@@ -1654,7 +1653,7 @@ def MST_gdf_subset(lines:gp.GeoDataFrame, weightMST:str = None, subsetNodesMST:g
     gdf = lines.copy()
 
     # Create graph representation of line GeoDataFrame
-    G = momepy.gdf_to_nx(gdf, approach="primal")
+    G = gdf_to_nx(gdf, approach="primal")
 
     if subsetNodesMST is not None:
         arrA = np.array([np.round([x,y],3) for x,y in zip(subsetNodesMST.geometry.x, subsetNodesMST.geometry.y)])              
@@ -1667,7 +1666,7 @@ def MST_gdf_subset(lines:gp.GeoDataFrame, weightMST:str = None, subsetNodesMST:g
     Gout = MST_graph_subset(g = G, weight = weightMST, subsetNodes = MSTnodes)
 
     # Convert networkx graph to GeoDataFrame
-    _, lines_out, _ = momepy.nx_to_gdf(Gout, points=True, lines=True, spatial_weights=True)
+    _, lines_out, _ = nx_to_gdf(Gout, points=True, lines=True, spatial_weights=True)
     lines_out = lines_out[[col for col in lines_out.columns if col in lines.columns]]
 
     return lines_out

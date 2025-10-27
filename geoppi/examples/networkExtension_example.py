@@ -1,26 +1,17 @@
 
 # %% Imports
 import os
-import sys
-
-parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if parentdir not in sys.path:
-    sys.path.insert(0, parentdir)
-
 import geopandas as gp
 import time
 from pathlib import Path
 
-from geoppi.suitable_network_routing import (network_span_bfs)
-from geoppi.internal_auxFunctions import (simultaneity_DH, relThermalLoss_DH, relThermalLossPower_DH,)
+from geoppi import (network_span_bfs, relThermalLoss_DH, relThermalLossPower_DH, simultaneity_DH, )
 
-parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if parentdir not in sys.path:
-    sys.path.insert(0, parentdir)
+
 
 # %% Load data
 
-flp = parentdir / Path(r'examples/data/exampleNetwork')
+flp = Path(r'data/exampleNetwork')
 flp_out = flp / Path(r'results')
 
 

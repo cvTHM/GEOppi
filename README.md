@@ -119,6 +119,16 @@ width="100%"/><br>
 **Used input data types**
 - Geo-referenced data are taken as inputs and given as outputs in GPKG format (applies to all geometry objects)
 
+## Installation
+You can install **GEOppi** by cloning a branch or copying the compressed branch directory to your local machine and running the enclosed setup file, e.g. in a shell after directing to the target folder:
+
+```
+python -m pip install .
+```
+
+This command installs **GEOppi** and its main dependencies. 
+Please note that problems may still occur when trying to install [GeoPandas](https://github.com/geopandas/geopandas) or [Rasterio](https://github.com/rasterio/rasterio) via pip. You can manually install them if the installation fails during the process for **GEOppi**.
+
 ## Quick start
 Please refer to the template scripts [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkExtension_example.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkModelling_example.py) for a quick start.
 

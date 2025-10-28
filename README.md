@@ -71,6 +71,16 @@ Geo-referenced line data for network routing and polygon data for heat consumers
 The network topology is modelled as a node-edge-representation. Heat consumers and heat supply sites are modelled using standard components from the [pandapipes component compendium](https://pandapipes.readthedocs.io/en/latest/components.html) for versions >= 0.10.0.  
 An **automatic pipe dimensioning routine** is selectable - pipe data for commercially available plastic jacket pipes and simple PE-HD pipes are implemented.
 
+<table>
+  <tr>
+    <td align="center" width="100%">
+      <img src="https://raw.githubusercontent.com/cvTHM/GEOppi/refs/heads/main/docs/images/fig_GEOppi_exampleNetwork.png" alt="search spaces" 
+width="100%"/><br>
+      <sub><b>Figure 3:</b> Chronological steps of heating network construction from GIS data in **GEOppi** </sub>
+    </td>
+  </tr>
+</table>
+
 - Load polygon objects of heat consumers, preferrably with attributes for heat demand
 - Load polygon objects of heat supply sites, preferrably with characteristics for type (base load producer or peak load producer) and thermal power
 - (Optional) Load point objects of valves as network periphery
@@ -122,7 +132,10 @@ All contributions to the tool **GEOppi** are warmly welcomed. Refer to the [cont
 The software tool is licensed under the [MIT License](https://github.com/cvTHM/GEOppi/blob/main/LICENSE).
 
 ## Citation
+**GEOppi** and its functionalities are first introduced to public in a conference article.
+When using **GEOppi** in your research, please cite it as follows:
 
+Völzel, C., Schug, N., Textor, M., Lechner, S. (2025): Constructing heating networks from GIS data: A framework for editing and converting line topologies into calculable grids. Konferenzbeitrag, NEIS 2025 Conference on Sustainable Energy Supply and Energy Storage, Hamburg, September 2025
 
 ## Contact
 Please refer to the issues or the discussion section on the GitHub repository for questions and feedback.

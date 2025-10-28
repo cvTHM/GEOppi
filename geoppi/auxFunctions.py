@@ -770,9 +770,6 @@ def func_swameejain(
     :return: float difference denoting the differnce between set value of specific pressure loss and calculated value by other arguments.\n
     """
 
-
-    # difference = dp_per_l * d**5 * rho * np.pi**2 / (mdot**2 * 8) - (0.25 / (np.log10(k/1e3/(3.71*d) + (5.74/(4*mdot/(d*np.pi*nu*rho))**(0.9))))**2)
-
     difference = dp_per_l - rho / (2*d) * (mdot * 4 / (rho*d**2*np.pi))**2 * 0.25 / (np.log10(k/1e3/(3.71*d) + (5.74/(4*mdot/(d*np.pi*nu*rho))**(0.9))))**2
 
     return difference
@@ -781,6 +778,7 @@ def func_swameejain(
 
 def _primal_to_gdf(net, points, lines, spatial_weights, node_id):
     """Generate gdf(s) from a primal network. Helper for ``nx_to_gdf``."""
+    """Function adopted from momepy: Fleischmann, M. (2019) ‘momepy: Urban Morphology Measuring Toolkit’, Journal of Open Source Software, 4(43), p. 1807. doi: 10.21105/joss.01807."""
     if points is True:
         gdf_nodes = _points_to_gdf(net)
 
@@ -803,6 +801,7 @@ def _primal_to_gdf(net, points, lines, spatial_weights, node_id):
 
 def _points_to_gdf(net):
     """Generate a point gdf from nodes. Helper for ``nx_to_gdf``."""
+    """Function adopted from momepy: Fleischmann, M. (2019) ‘momepy: Urban Morphology Measuring Toolkit’, Journal of Open Source Software, 4(43), p. 1807. doi: 10.21105/joss.01807."""
     node_xy, node_data = zip(*net.nodes(data=True), strict=True)
     if isinstance(node_xy[0], int) and "x" in node_data[0]:
         geometry = [Point(data["x"], data["y"]) for data in node_data]  # osmnx graph
@@ -815,6 +814,7 @@ def _points_to_gdf(net):
 
 def _lines_to_gdf(net, points, node_id):
     """Generate a linestring gdf from edges. Helper for ``nx_to_gdf``."""
+    """Function adopted from momepy: Fleischmann, M. (2019) ‘momepy: Urban Morphology Measuring Toolkit’, Journal of Open Source Software, 4(43), p. 1807. doi: 10.21105/joss.01807."""
     starts, ends, edge_data = zip(*net.edges(data=True), strict=True)
     gdf_edges = gp.GeoDataFrame(list(edge_data))
 
@@ -920,6 +920,7 @@ def gdf_to_nx(
     <networkx.classes.multigraph.MultiGraph object at 0x7f8cf9150fd0>
 
     """
+    """Function adopted from momepy: Fleischmann, M. (2019) ‘momepy: Urban Morphology Measuring Toolkit’, Journal of Open Source Software, 4(43), p. 1807. doi: 10.21105/joss.01807."""
     gdf_network = gdf_network.copy()
     if "key" in gdf_network.columns:
         gdf_network.rename(columns={"key": "__key"}, inplace=True)
@@ -1031,6 +1032,7 @@ def nx_to_gdf(
     0  LINESTRING (1603585.640 6464428.774, 1603413.2...  264.103950
     1  LINESTRING (1603607.303 6464181.853, 1603592.8...  199.746503
     """
+    """Function adopted from momepy: Fleischmann, M. (2019) ‘momepy: Urban Morphology Measuring Toolkit’, Journal of Open Source Software, 4(43), p. 1807. doi: 10.21105/joss.01807."""
     # generate nodes and edges geodataframes from graph
     primal = None
     if "approach" in net.graph:
@@ -1065,6 +1067,7 @@ def nx_to_gdf(
 
 def _generate_primal(graph, gdf_network, fields, multigraph, oneway_column=None):
     """Generate a primal graph. Helper for ``gdf_to_nx``."""
+    """Function adopted from momepy: Fleischmann, M. (2019) ‘momepy: Urban Morphology Measuring Toolkit’, Journal of Open Source Software, 4(43), p. 1807. doi: 10.21105/joss.01807."""
     graph.graph["approach"] = "primal"
 
     msg = (
@@ -1108,6 +1111,7 @@ def _generate_primal(graph, gdf_network, fields, multigraph, oneway_column=None)
 
 def _generate_dual(graph, gdf_network, fields, angles, multigraph, angle):
     """Generate a dual graph. Helper for ``gdf_to_nx``."""
+    """Function adopted from momepy: Fleischmann, M. (2019) ‘momepy: Urban Morphology Measuring Toolkit’, Journal of Open Source Software, 4(43), p. 1807. doi: 10.21105/joss.01807."""
     graph.graph["approach"] = "dual"
     key = 0
 
@@ -1160,12 +1164,14 @@ def _angle(a, b, c):
     Measure the angle between a-b, b-c (in degrees). Helper for ``gdf_to_nx``.
     Adapted from cityseer's implementation.
     """
+    """Function adopted from momepy: Fleischmann, M. (2019) ‘momepy: Urban Morphology Measuring Toolkit’, Journal of Open Source Software, 4(43), p. 1807. doi: 10.21105/joss.01807."""
     a1 = math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
     a2 = math.degrees(math.atan2(c[1] - b[1], c[0] - b[0]))
     return abs((a2 - a1 + 180) % 360 - 180)
 
 def _dual_to_gdf(net):
     """Generate a linestring gdf from a dual network. Helper for ``nx_to_gdf``."""
+    """Function adopted from momepy: Fleischmann, M. (2019) ‘momepy: Urban Morphology Measuring Toolkit’, Journal of Open Source Software, 4(43), p. 1807. doi: 10.21105/joss.01807."""
     starts, edge_data = zip(*net.nodes(data=True), strict=True)
     gdf_edges = gp.GeoDataFrame(list(edge_data))
     gdf_edges.crs = net.graph["crs"]

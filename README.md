@@ -88,7 +88,7 @@ width="100%"/><br>
 - Load line objects of the final network topology (distribution lines and house connection lines)
   - Supports completely new heating networks (no attributes on the line objects) and existing heating network topologies (specify attributes which shall be maintained)
   - Only the supply line layer is needed for this step!
-  - Note: The automatic creation of house connection lines for entirely new heating networks is not yet part of **GEOppi**. For this reason, a dedicated function for the [QGIS model designer](https://docs.qgis.org/3.40/en/docs/user_manual/processing/modeler.html) is implemented in the [QGIS_ModelDesigner directory](https://github.com/cvTHM/GEOppi/blob/main/QGIS_ModelDesigner). It creates straight house connection lines from each selected building in the masked investigation area to the closest distribution line segment and a robust separation of the distribution line segment at the connection point.
+  - Note: The automatic creation of house connection lines for entirely new heating networks is not yet part of **GEOppi**. For this reason, a dedicated function for the [QGIS model designer](https://docs.qgis.org/3.40/en/docs/user_manual/processing/modeler.html) is implemented in the [QGIS_ModelDesigner directory](https://github.com/cvTHM/GEOppi/blob/main/geoppi/QGIS_ModelDesigner). It creates straight house connection lines from each selected building in the masked investigation area to the closest distribution line segment and a robust separation of the distribution line segment at the connection point.
 - For the case of entirely new heating networks:
   - Specify type of piping (plastic jacket pipes (+ stage of insulation) or simple PE-HD pipes (uninsulated))
   - **Special feature**: For automatic pipe dimensioning routine, specify:
@@ -120,10 +120,10 @@ width="100%"/><br>
 - Geo-referenced data are taken as inputs and given as outputs in GPKG format (applies to all geometry objects)
 
 ## Quick start
-Please refer to the template scripts [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/examples/networkExtension_example.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/examples/networkModelling_example.py) for a quick start.
+Please refer to the template scripts [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkExtension_example.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkModelling_example.py) for a quick start.
 
 ## Documentation
-A central documentation has not been started yet. Exemplary applications of the functionalities for determination of possible network expansions and the conversion of geo-referenced data into a calculable network model are given in the files [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/examples/networkExtension_template.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/examples/networkModelling_template.py).
+A central documentation has not been started yet. Exemplary applications of the functionalities for determination of possible network expansions and the conversion of geo-referenced data into a calculable network model are given in the files [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkExtension_template.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkModelling_template.py).
 
 ## Contributing
 All contributions to the tool **GEOppi** are warmly welcomed. Refer to the [contribution guidelines](https://github.com/cvTHM/GEOppi/blob/main/CONTRIBUTION_guidelines.md) for more information.

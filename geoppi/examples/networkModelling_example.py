@@ -7,7 +7,7 @@ import geopandas as gp
 import pandapipes as ppi
 import numpy as np
 
-from pandapower.control import run_control
+from pandapipes.control import run_control
 import geoppi
 
 from geoppi import (transfer_LoadPoint_ppi, extract_FluidProperties_ppi, get_dict_from_aggregated_groups, implement_controllers, )

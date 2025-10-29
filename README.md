@@ -71,6 +71,16 @@ Geo-referenced line data for network routing and polygon data for heat consumers
 The network topology is modelled as a node-edge-representation. Heat consumers and heat supply sites are modelled using standard components from the [pandapipes component compendium](https://pandapipes.readthedocs.io/en/latest/components.html) for versions >= 0.10.0.  
 An **automatic pipe dimensioning routine** is selectable - pipe data for commercially available plastic jacket pipes and simple PE-HD pipes are implemented.
 
+<table>
+  <tr>
+    <td align="center" width="100%">
+      <img src="https://raw.githubusercontent.com/cvTHM/GEOppi/refs/heads/main/docs/images/fig_GEOppi_exampleNetwork.png" alt="search spaces" 
+width="100%"/><br>
+      <sub><b>Figure 3:</b> Chronological steps of heating network construction from GIS data in **GEOppi** </sub>
+    </td>
+  </tr>
+</table>
+
 - Load polygon objects of heat consumers, preferrably with attributes for heat demand
 - Load polygon objects of heat supply sites, preferrably with characteristics for type (base load producer or peak load producer) and thermal power
 - (Optional) Load point objects of valves as network periphery
@@ -78,7 +88,7 @@ An **automatic pipe dimensioning routine** is selectable - pipe data for commerc
 - Load line objects of the final network topology (distribution lines and house connection lines)
   - Supports completely new heating networks (no attributes on the line objects) and existing heating network topologies (specify attributes which shall be maintained)
   - Only the supply line layer is needed for this step!
-  - Note: The automatic creation of house connection lines for entirely new heating networks is not yet part of **GEOppi**. For this reason, a dedicated function for the [QGIS model designer](https://docs.qgis.org/3.40/en/docs/user_manual/processing/modeler.html) is implemented in the [QGIS_ModelDesigner directory](https://github.com/cvTHM/GEOppi/blob/main/QGIS_ModelDesigner). It creates straight house connection lines from each selected building in the masked investigation area to the closest distribution line segment and a robust separation of the distribution line segment at the connection point.
+  - Note: The automatic creation of house connection lines for entirely new heating networks is not yet part of **GEOppi**. For this reason, a dedicated function for the [QGIS model designer](https://docs.qgis.org/3.40/en/docs/user_manual/processing/modeler.html) is implemented in the [QGIS_ModelDesigner directory](https://github.com/cvTHM/GEOppi/blob/main/geoppi/QGIS_ModelDesigner). It creates straight house connection lines from each selected building in the masked investigation area to the closest distribution line segment and a robust separation of the distribution line segment at the connection point.
 - For the case of entirely new heating networks:
   - Specify type of piping (plastic jacket pipes (+ stage of insulation) or simple PE-HD pipes (uninsulated))
   - **Special feature**: For automatic pipe dimensioning routine, specify:
@@ -109,11 +119,21 @@ An **automatic pipe dimensioning routine** is selectable - pipe data for commerc
 **Used input data types**
 - Geo-referenced data are taken as inputs and given as outputs in GPKG format (applies to all geometry objects)
 
+## Installation
+You can install **GEOppi** by cloning a branch or copying the compressed branch directory to your local machine and running the enclosed setup file, e.g. in a shell after directing to the target folder:
+
+```
+python -m pip install .
+```
+
+This command installs **GEOppi** and its main dependencies. 
+Please note that problems may still occur when trying to install [GeoPandas](https://github.com/geopandas/geopandas) or [Rasterio](https://github.com/rasterio/rasterio) via pip. You can manually install them if the installation fails during the process for **GEOppi**.
+
 ## Quick start
-Please refer to the template scripts [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/examples/networkExtension_example.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/examples/networkModelling_example.py) for a quick start.
+Please refer to the template scripts [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkExtension_example.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkModelling_example.py) for a quick start.
 
 ## Documentation
-A central documentation has not been started yet. Exemplary applications of the functionalities for determination of possible network expansions and the conversion of geo-referenced data into a calculable network model are given in the files [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/examples/networkExtension_template.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/examples/networkModelling_template.py).
+A central documentation has not been started yet. Exemplary applications of the functionalities for determination of possible network expansions and the conversion of geo-referenced data into a calculable network model are given in the files [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkExtension_template.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkModelling_template.py).
 
 ## Contributing
 All contributions to the tool **GEOppi** are warmly welcomed. Refer to the [contribution guidelines](https://github.com/cvTHM/GEOppi/blob/main/CONTRIBUTION_guidelines.md) for more information.
@@ -122,7 +142,10 @@ All contributions to the tool **GEOppi** are warmly welcomed. Refer to the [cont
 The software tool is licensed under the [MIT License](https://github.com/cvTHM/GEOppi/blob/main/LICENSE).
 
 ## Citation
+**GEOppi** and its functionalities are first introduced to public in a conference article.
+When using **GEOppi** in your research, please cite it as follows:
 
+Völzel, C., Schug, N., Textor, M., Lechner, S. (2025): Constructing heating networks from GIS data: A framework for editing and converting line topologies into calculable grids. Konferenzbeitrag, NEIS 2025 Conference on Sustainable Energy Supply and Energy Storage, Hamburg, September 2025
 
 ## Contact
 Please refer to the issues or the discussion section on the GitHub repository for questions and feedback.

@@ -1,22 +1,16 @@
 # %% Imports
-
-
-import geopandas as gp
-import pandapipes as ppi
-import numpy as np
 import os
 
 import rasterio
 from pathlib import Path
+import geopandas as gp
+import pandapipes as ppi
+import numpy as np
 
-from geoppi.auxFunctions import (get_dict_from_aggregated_groups)
-from geoppi.create_network_topology import (create_ppi_network_from_gdf,)
-from geoppi.suitable_network_routing import (MST_gdf_subset, sum_heat_demands_to_closest_supplier)
-from geoppi.dimension_network_pipes import (update_ppi_results, assign_insulation_type, hydraulicDimensioningNetwork_singleLoadPoint, assign_nominal_widths_manually)
-from geoppi.internal_auxFunctions import (extract_FluidProperties_ppi, transfer_LoadPoint_ppi, implement_controllers)
 from pandapipes.control import run_control
+import geoppi
 
-from geoppi.pipe_characteristics import load_hydraulic_pipe_characteristics
+from geoppi import (transfer_LoadPoint_ppi, extract_FluidProperties_ppi, get_dict_from_aggregated_groups, implement_controllers, )
 
 
 # %% Load data
@@ -32,7 +26,7 @@ save_network = True
 
 ### Filepaths
 # Input path
-flp = Path(r'examples/data/exampleNetwork')
+flp = Path(r'data/exampleNetwork')
 
 # output path
 flp_out = flp / Path(r'results')
@@ -132,7 +126,7 @@ friction_model = 'swamee-jain'
 respect_height = False
 
 # Access network type-dependent data for pipes
-dictNominalInnerDiameter, dictWallRoughness = load_hydraulic_pipe_characteristics(networkType)
+dictNominalInnerDiameter, dictWallRoughness = geoppi.load_hydraulic_pipe_characteristics(networkType)
 
 # Global setting to suppress numpy warnings
 np.seterr(divide='ignore')
@@ -140,7 +134,7 @@ np.seterr(divide='ignore')
 
 # %% Create pandapipes network for feed line
 
-netFeed = create_ppi_network_from_gdf(
+netFeed = geoppi.create_ppi_network_from_gdf(
     pipes = pipes,
     buildings = buildings,
     valves = valves,
@@ -177,7 +171,7 @@ cp_fluid, rho_fluid, nu_fluid, g = extract_FluidProperties_ppi(net = netFeed, t 
 # Adapt user defined options of the network to hydraulic and thermal calculation mode
 ppi.set_user_pf_options(net = netFeed, mode="hydraulics", friction_model = friction_model, quit_on_inconsistency_connectivity=True, reset = True)
 
-netFeed = hydraulicDimensioningNetwork_singleLoadPoint(
+netFeed = geoppi.hydraulicDimensioningNetwork_singleLoadPoint(
     net = netFeed,
     networkType = networkType,
     dpSpec = dp_spec,
@@ -197,15 +191,14 @@ netFeed = hydraulicDimensioningNetwork_singleLoadPoint(
 
 
 ### Assign final heat transfer coefficient
-netFeed.pipe = assign_insulation_type(
+netFeed.pipe = geoppi.assign_insulation_type(
     df_pipes = netFeed.pipe, 
     colNameNominalWidth = 'nominalWidth', 
     network_type = networkType, 
     insulation_type = insulationType if networkType == 'KMR' else None
 )
 
-
-netFeed = update_ppi_results(
+netFeed = geoppi.update_ppi_results(
     net = netFeed,
     user_pf_options={'mode':'hydraulics', 'friction_model':'swamee-jain'},
     respectHeight = False,
@@ -280,7 +273,7 @@ _, dictNWs = get_dict_from_aggregated_groups(
     func = 'max'
 )
 
-netFeed_dimensioned = assign_nominal_widths_manually(
+netFeed_dimensioned = geoppi.assign_nominal_widths_manually(
     net = netFeed,
     dictNW = dictNWs,
     dictNominalInnerDiameter = dictNominalInnerDiameter,
@@ -289,7 +282,7 @@ netFeed_dimensioned = assign_nominal_widths_manually(
 )
 
 ### Assign final heat transfer coefficient
-netFeed_dimensioned.pipe = assign_insulation_type(
+netFeed_dimensioned.pipe = geoppi.assign_insulation_type(
     df_pipes = netFeed_dimensioned.pipe, 
     colNameNominalWidth = 'nominalWidth', 
     network_type = networkType, 
@@ -300,7 +293,7 @@ netFeed_dimensioned.pipe = assign_insulation_type(
 
 # %% *--- Create complete Pandapipes network from pre-dimensioned feed line network ---*
 
-netFeedReflux = create_ppi_network_from_gdf(
+netFeedReflux = geoppi.create_ppi_network_from_gdf(
     existingNetworkFeedLine = netFeed_dimensioned,
     buildings = buildings,
     heatingDemandAttr = heatingDemandAttr,
@@ -327,7 +320,7 @@ netFeedReflux = transfer_LoadPoint_ppi(
     baseLoadProdNaming = baseLoadProdNaming
 )
 
-netFeedReflux = update_ppi_results(
+netFeedReflux = geoppi.update_ppi_results(
     net = netFeedReflux,
     respectHeight=False,
     fluidProperties={'cp':cp_fluid, 'rho':rho_fluid, 'nu':nu_fluid},
@@ -336,13 +329,8 @@ netFeedReflux = update_ppi_results(
 )
 
 
-# ppi.to_pickle(net = netFeedReflux, filename = str(flp_out / Path('netFeedReflux_dimensioned_manually_final.p')))
-# gp.GeoDataFrame(netFeedReflux.pipe, geometry = 'geometry').to_file(flp_out / Path('netFeedReflux_dimensioned_manually_final_pipes.gpkg'), driver = 'GPKG')
-
-
 # %% Analysis of summed heat demands along paths from heat consumers to closest heat supplier
-
-netFeedReflux = ppi.from_pickle(str(flp_out / Path('netFeedReflux_dimensioned_manually_final.p')))
+import pandas as pd
 
 # Prepare dataframe to convert
 ## Keep opened valves
@@ -361,7 +349,7 @@ else:
 
 DF_edges.loc[DF_edges[weightAttr].isna(), weightAttr] = 0
 
-DF_out = sum_heat_demands_to_closest_supplier(
+DF_out = geoppi.sum_heat_demands_to_closest_supplier(
     edgelist = DF_edges,
     sources = 'from_junction',
     targets = 'to_junction',
@@ -463,19 +451,3 @@ print(f'\n### pmin reached is {pmin_reached} bar. Target value is {pmin_target} 
 ###
 import pandas as pd
 pd.cut(netFeedReflux.res_heat_consumer['t_to_k'], np.arange(tReflux + 273.15 - 2, tReflux + 273.15 + 2, 0.25)).value_counts(normalize = True)
-
-# netFeedReflux.pipe['mdot_from_kg_per_s'] = netFeedReflux.res_pipe['mdot_from_kg_per_s']
-
-# gp.GeoDataFrame(netFeedReflux.pipe, geometry = 'geometry').set_crs(cs).to_file(flp_out / Path('netFeedReflux_dimensioned_manually_final_controlled_pipes.gpkg'), driver = 'GPKG')
-
-# netFeedReflux.heat_consumer['t_from_k'] = netFeedReflux.res_heat_consumer['t_from_k']
-# netFeedReflux.heat_consumer['t_to_k'] = netFeedReflux.res_heat_consumer['t_to_k']
-
-# netFeedReflux.heat_consumer['dp_bar'] = netFeedReflux.res_heat_consumer['p_from_bar'] - netFeedReflux.res_heat_consumer['p_to_bar']
-
-# gp.GeoDataFrame(netFeedReflux.heat_consumer, geometry = 'geometry').set_crs(cs).to_file(flp_out / Path('netFeedReflux_dimensioned_manually_final_controlled_heat_consumers.gpkg'), driver = 'GPKG')
-
-# netFeedReflux.junction['t_k'] = netFeedReflux.res_junction['t_k']
-# netFeedReflux.junction['p_bar'] = netFeedReflux.res_junction['p_bar']
-
-# gp.GeoDataFrame(netFeedReflux.junction, geometry = 'geometry').set_crs(cs).to_file(flp_out / Path('netFeedReflux_dimensioned_manually_final_controlled_junctions.gpkg'), driver = 'GPKG')

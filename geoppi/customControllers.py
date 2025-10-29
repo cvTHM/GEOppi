@@ -262,6 +262,10 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
         ## During control step, ccontrolled_mdoit_kg_per_s in heat_cosnumer components is changed
         net.heat_consumer['controlled_mdot_kg_per_s_init'] = net.heat_consumer['controlled_mdot_kg_per_s'].copy()
 
+        # Save initial conditions of network
+        ## During control step, ccontrolled_mdoit_kg_per_s in heat_cosnumer components is changed
+        net.heat_consumer['controlled_mdot_kg_per_s_init'] = net.heat_consumer['controlled_mdot_kg_per_s'].copy()
+
 
     def add_controller_to_net(self, net, in_service, initial_run, order, level, index, recycle,
                               drop_same_existing_ctrl, overwrite, **kwargs):

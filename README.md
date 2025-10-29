@@ -76,7 +76,7 @@ An **automatic pipe dimensioning routine** is selectable - pipe data for commerc
     <td align="center" width="100%">
       <img src="https://raw.githubusercontent.com/cvTHM/GEOppi/refs/heads/main/docs/images/fig_GEOppi_exampleNetwork.png" alt="search spaces" 
 width="100%"/><br>
-      <sub><b>Figure 3:</b> Chronological steps of heating network construction from GIS data in **GEOppi** </sub>
+      <sub><b>Figure 3:</b> Chronological steps of heating network construction from GIS data in GEOppi </sub>
     </td>
   </tr>
 </table>

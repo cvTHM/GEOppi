@@ -5,17 +5,18 @@ import geopandas as gp
 import pandapipes as ppi
 import numpy as np
 import os
+import geoppi
 
 import rasterio
 from pathlib import Path
 
-from auxFunctions import (get_dict_from_aggregated_groups)
-from create_network_topology import (create_ppi_network_from_gdf,)
-from dimension_network_pipes import (update_ppi_results, assign_insulation_type, hydraulicDimensioningNetwork_singleLoadPoint, assign_nominal_widths_manually)
-from internal_auxFunctions import (extract_FluidProperties_ppi, transfer_LoadPoint_ppi, implement_controllers)
-from pandapipes.control import run_control
+# from auxFunctions import (get_dict_from_aggregated_groups)
+# from create_network_topology import (create_ppi_network_from_gdf,)
+# from dimension_network_pipes import (update_ppi_results, assign_insulation_type, hydraulicDimensioningNetwork_singleLoadPoint, assign_nominal_widths_manually)
+# from internal_auxFunctions import (extract_FluidProperties_ppi, transfer_LoadPoint_ppi, implement_controllers)
+# from pandapipes.control import run_control
 
-from pipe_characteristics import load_hydraulic_pipe_characteristics
+# from pipe_characteristics import load_hydraulic_pipe_characteristics
 
 
 # %% Load data
@@ -701,8 +702,10 @@ print(f'\nLänge der Rohre (gesamt, length) = {np.nansum(netFeedReflux.pipe["len
 import pandas as pd
 import numpy as np
 
-# results = pd.read_excel(flp_out / Path(f'results_heatDemand_variation_sf0.78.xlsx'))
-# resultsConsumers = np.load(flp_out / Path(f'results_heatDemand_variation_heatConsumers_sf0.78.npy'))
+flp_out = Path(r'Z:\02_Mitarbeiter\Constantin_Voelzel\THESA_THM\98_Konferenzen\NEIS_2025_Hamburg\data\heatingNetwork_Herborn\results_v2')
+
+results = pd.read_excel(flp_out / Path(f'results_heatDemand_variation_sf0.78.xlsx'))
+resultsConsumers = np.load(flp_out / Path(f'results_heatDemand_variation_heatConsumers_sf0.78.npy'))
 
 # Plot appearance
 import matplotlib.pyplot as plt
@@ -726,9 +729,6 @@ data['rel_pumping_power_el_incldpProducers'] = \
 # data[['P_pump_prod1_kW', 'P_pump_prod2_kW', 'P_pump_prod3_kW']].sum(axis = 1) / data['Pth_demand_kW']
 
 # Create plot
-
-# PLot size for single column layout is (3.22, 2)
-
 fig, (ax, ax_bottom) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [0.8, 1]})
 fig.set_size_inches(6.44, 4, forward=True)
 fig.set_dpi(300)
@@ -763,51 +763,104 @@ ax2.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 
 ax2.set_ylabel('Rel. thermal loss,\nRel. el. pumping power', **xfont)
 
-## Bottom axes
-# Plot pressure differences at heat consumers
-scat_dp = ax_bottom.scatter(
-    x = np.array(data['partialLoad']).repeat(np.shape(resultsConsumers)[0]),
-    y = np.array(resultsConsumers[:, :, 0]).flatten('F'),
-    marker = '_',
-    facecolors = 'green',
-    s = 120,
-    linewidths = 0.2,
-    alpha = 1,
-    label = '$\Delta p$',
-    zorder = 11
+box_dp = ax_bottom.boxplot(
+    x = resultsConsumers[:,:,0],
+    positions = np.array(data['partialLoad']),
+    # whis = (5, 90),
+    showfliers = False, # Do not show outliers beyond caps
+    orientation = 'vertical',
+    notch = False, # if True, creates 95% confidence intervall around median with "Kerbe"
+    patch_artist = True, # Creates handle for boxprops to customize the boxes
+    widths = 0.1,
+    label = '$dp$',
+    zorder = 11,
+    boxprops=dict(facecolor='green', edgecolor='black', linewidth=0.5, alpha = 0.5),
+    whiskerprops = dict(linewidth = 0.5), # Handle for connecting lines to caps
+    flierprops = dict(linewidth = 0.5), # Handle appearance of data outside the whiskers ("outliers")
+    capprops = dict(linewidth = 1, color = 'green'),
+    medianprops = dict(linewidth = 0.25, color = 'black')
 )
+
+'''
+parts = ax_bottom.violinplot(
+    dataset=resultsConsumers[:,:,0],
+    positions=np.array(data['partialLoad']),
+    vert=True,
+    widths=0.1,
+    showmeans=False,
+    showmedians=True,     # Median sichtbar
+    showextrema=False      # Whisker/Outlier sichtbar
+)
+
+# Fläche ("bodies") sind Listen von PolyCollections
+for pc in parts['bodies']:
+    pc.set_facecolor('green')
+    pc.set_edgecolor('black')
+    pc.set_alpha(0.5)
+    pc.set_linewidth(0.5)
+
+# Die restlichen Bestandteile sind Einzelelemente vom Typ LineCollection
+if 'cmedians' in parts:
+    parts['cmedians'].set_color('black')
+    parts['cmedians'].set_linewidth(0.25)
+
+if 'cmaxes' in parts:
+    parts['cmaxes'].set_color('green')
+    parts['cmaxes'].set_linewidth(1)
+if 'cmins' in parts:
+    parts['cmins'].set_color('green')
+    parts['cmins'].set_linewidth(1)
+
+if 'cbars' in parts:
+    parts['cbars'].set_linewidth(0.5)
+    parts['cbars'].set_edgecolor('black')
+if 'cmeans' in parts:
+    parts['cmeans'].set_color('blue')
+    parts['cmeans'].set_linewidth(0.5)
+'''
 
 
 # Plot supply and return temperatures at heat consumers
 ax_bottom2 = ax_bottom.twinx()
 
-# Supply temperature
-scat_supply = ax_bottom2.scatter(
-    x = np.array(data['partialLoad']).repeat(np.shape(resultsConsumers)[0]),
-    y = np.array(resultsConsumers[:, :, 1]).flatten('F') - 273.15,
-    marker = 'o',
-    facecolors = 'none',
-    edgecolors = 'black',
-    linewidths = 0.25,
-    alpha = 1,
+box_supply = ax_bottom2.boxplot(
+    x = resultsConsumers[:,:,1]-273.15,
+    positions = np.array(data['partialLoad']),
+    # whis = (5, 95),
+    showfliers = False, # Do not show outliers beyond caps
+    orientation = 'vertical',
+    notch = False, # if True, creates 95% confidence intervall around median with "Kerbe"
+    patch_artist = True, # Creates handle for boxprops to customize the boxes
+    widths = 0.1,
     label = '$T_{supply}$',
-    zorder = 10
+    zorder = 10,
+    boxprops=dict(facecolor='gray', edgecolor='black', linewidth=0.5, alpha = 0.5),
+    whiskerprops = dict(linewidth = 0.5), # Handle for connecting lines to caps
+    flierprops = dict(linewidth = 0.5), # Handle appearance of data outside the whiskers ("outliers")
+    capprops = dict(linewidth = 1, color = 'gray'),
+    medianprops = dict(linewidth = 0.25, color = 'black')
 )
 
-## Return temperature
-scat_return = ax_bottom2.scatter(
-    x = np.array(data['partialLoad']).repeat(np.shape(resultsConsumers)[0]),
-    y = np.array(resultsConsumers[:, :, 2]).flatten('F') - 273.15,
-    marker = '^',
-    edgecolors = 'orange',
-    facecolors = 'none',
-    linewidths = 0.5,
-    alpha = 1,
+
+box_return = ax_bottom2.boxplot(
+    x = resultsConsumers[:,:,2]-273.15,
+    positions = np.array(data['partialLoad']),
+    # whis = (5, 95),
+    showfliers = False, # Do not show outliers beyond caps
+    orientation = 'vertical',
+    notch = False, # if True, creates 95% confidence intervall around median with "Kerbe"
+    patch_artist = True, # Creates handle for boxprops to customize the boxes
+    widths = 0.1,
     label = '$T_{return}$',
-    zorder = 9
+    zorder = 10,
+    boxprops=dict(facecolor='orange', edgecolor='black', linewidth=0.5, alpha = 0.5),
+    whiskerprops = dict(linewidth = 0.5), # Handle for connecting lines to caps
+    flierprops = dict(linewidth = 0.5), # Handle appearance of data outside the whiskers ("outliers")
+    capprops = dict(linewidth = 1, color = 'orange'),
+    medianprops = dict(linewidth = 0.25, color = 'black')
 )
 
-ax_bottom.set_xlabel(r'Rel. thermal demand load $\frac{\dot{Q}_{dem}}{\dot{Q}_{dem,max}}$', **xfont)
+ax_bottom.set_xlabel(r'Rel. thermal demand load $\frac{P_{th,dem}}{P_{th,dem,max}}$', **xfont)
 ax_bottom.set_xlim([0.05, 1.05])
 ax_bottom.set_ylim([0.2, 6])
 ax_bottomYticks = np.arange(7)
@@ -833,14 +886,9 @@ lines_labels2 = ax2.get_legend_handles_labels()
 scat_labels2 = ax_bottom2.get_legend_handles_labels()
 scat_labels = ax_bottom.get_legend_handles_labels()
 
-handles = lines_labels[0] + [line_c, line_d] + [scat_supply, scat_return] + [scat_dp]
+# handles = lines_labels[0] + [line_c, line_d] + [scat_supply, scat_return] + [scat_dp]
+handles = lines_labels[0] + [line_c, line_d] + [box_supply['boxes'][0], box_return['boxes'][0]] + [box_dp['boxes'][0]]#
 labels = lines_labels[-1] + lines_labels2[-1] + scat_labels2[-1] + scat_labels[-1]
 
 ax_bottom2.legend(handles, labels, loc='upper left', bbox_to_anchor = (1.125, 1.5), ncol = 1, prop = legendfont)
 
-fig.savefig(flp_out / Path('fig_heatDemandLoad_variation.png'), dpi = 300, bbox_inches = 'tight')
-
-
-# %%
-
-# netFeedReflux.res_heat_consumer['t_to_k'].value_counts(bins = [317, 320, 325, 330, 335, 340, 345, 350], normalize = True)

@@ -386,6 +386,8 @@ circ_pump_pressure_idx = 0
 dpmin_target = 1.2 # bar
 pmin_target = 1.5 # bar
 
+ppi.set_user_pf_options(net = netFeedReflux, mode="sequential", friction_model = friction_model, quit_on_inconsistency_connectivity=True, reset = True)
+
 # Create controllers 
 netFeedReflux = implement_controllers(
     net = netFeedReflux,
@@ -412,7 +414,7 @@ netFeedReflux = implement_controllers(
         'T_target':tReflux + 273.15,
         'min_mdot':0.015,
         'min_dT':3,
-        'abs_tol':1,
+        'abs_tol':0.1,
         'order':0,
         'level':-1
         },

@@ -7,7 +7,163 @@ import rasterio as rio
 import networkx as nx
 import libpysal
 import warnings
+from tqdm import tqdm
 from shapely.geometry import Point
+
+def assign_attr_by_max_intersection_area(gp1, gp_source, attr, gp1_id='id'):
+
+    '''
+    Function to assign attr from GeoDataFrame gp_source to input-GeoDataFrame gp1 by maximum intersection area between each object of gp1 and gp_source.
+
+    :param gp1: GeoDataFrame containing objects to which attributes from gp_souce shall be matched.\n
+    :param gp_source: GeoDataFrame containing attributes which shall be transferred to objects in gp1 with max. intersection.\n
+    :param attr: str denoting the attribute that shall be transferred.\n
+    :param gp1_id: str denoting a unique identifier column name for objects in gp1.\n        
+    '''
+
+    import geopandas as gp
+
+    dictemp = dict(zip(gp1[gp1_id], gp1.index))
+
+
+    if attr not in list(gp_source.columns):
+        print('\nChosen attribute is not contained in gp_source columns! Operation cannot be performed. Aborting...')
+
+
+    else:
+        if attr in gp1.columns:
+            gp1.drop(columns = attr, inplace = True)
+            print('\nAttribute ' + attr + ' already contained in gp1. Column is dropped and overwritten.')
+
+        gtemp = gp.overlay(gp1, gp_source[[attr, 'geometry']], how='intersection')
+        gtemp['temporary'] = gtemp.area
+
+        idxmax = gtemp.groupby(by=gp1_id)['temporary'].idxmax()
+        ls = gtemp.loc[idxmax.values, [gp1_id, attr]].set_index(gp1_id, drop=True)
+        ls.index = [dictemp[p] for p in ls.index]
+
+        gp1[attr] = ls
+
+    return (gp1)
+
+def create_circumferential_points(polygons:gp.GeoDataFrame, npoints:int = 10, lmin:float = 5)->gp.GeoDataFrame:
+
+    """
+    Function creating MultiPoint object with circumferential points around boundary of each polygon object in **polygons**.
+
+    :param polygons: GeoDataFrame of polygon objects.\n
+    :param npoints: integer defining the desired number of points to create per polygon.\n
+    :param lmin: float denoting the minimum distance between points to preserve.\n
+
+    :return: GeoDataFrame containting MultiPoint object for each polygon.
+    """
+
+    # Imports
+    from tqdm import tqdm
+
+    # Create boundary line
+    bounds = polygons[['geometry']].copy()
+    bounds['geometry'] = bounds.geometry.boundary
+   
+    print('\n### Generating circumferential points ... ###\n')
+    bounds['circumferentialPoints'] = bounds.geometry.apply(lambda x: create_point_splitter_npoints(x, npoints = npoints, lmin = lmin))
+
+    points = gp.GeoDataFrame(bounds[['circumferentialPoints']].rename(columns = {'circumferentialPoints':'geometry'}), geometry = 'geometry')
+
+    return points
+
+def create_point_splitter_npoints(line, npoints:int = 8, lmin:float = 5):
+
+    '''
+    Create MultiPoint layer with points along idx_ps_min_distances given LineString geometry at idx_ps_min_distances predefined number of points (respecting minimum values for single line segments between points).
+
+    :param line: shaely.goemetry line object.\n
+    :param npoints: int denoting the number of points that shall be created along line.\n
+    :param lmin: float denoting the minimum length of line segments between consecutive points along the line.\n
+    
+    :returns: shapely.MultiPoint object for splitting points on the provided line object.
+    '''
+    import numpy as np
+    from shapely.ops import unary_union
+
+    distances = np.round(np.linspace(0, line.length, npoints+1), 1) if line.length < 200 else np.round(np.arange(0, line.length, 20), 1)
+    
+    # If last element is shorter than lmin, skip last splitting point
+    if line.length - distances[-1] < lmin:
+        distances = distances[:-1]
+
+
+    points = [line.interpolate(distance) for distance in distances]
+    result = unary_union(points)
+
+    return(result)
+
+def closest_objects_to_points(points:gp.GeoDataFrame, geomObjects:gp.GeoDataFrame, **kwargs)->tuple[np.array, np.array]:
+
+    """
+    Function that returns the index of the closest geometry object to each point in **points**.\n
+    A kwarg can be "maxDist", either as array for each point in **points** or as a constant float/integer applied to all points.\n
+
+    :param points: GeoDataFrame of point objects for which to find closest geometry object in **geomObjects**\n
+    :param geomObjects: GeoDataFrame containting geometry objects of arbitrary type in whcih to look for closest objects.\n
+    :kwargs: if 'maxDist' is contained in kwargs.keys(), the maximum searching distance for the closest geometry object is restricted to this value. Can either be provided point-wise ias an array or as a constant value (float, integer) for all points. If no matching object within the maximum distance is found, np.nan is entered.\n
+
+    :return: Two numpy.arrays with (i) indicating the matching index of the closest object found in **geomObjects** and (ii) the corresponding distances.
+    """
+
+    # Checking kwargs
+    defaultDist = 100
+
+    if 'maxDist' in kwargs.keys():
+        maxDist = kwargs['maxDist']
+
+        if type(maxDist) == float | type(maxDist) == int:
+            maxDist = np.ones(points.shape[0]) * maxDist
+
+    else:
+        maxDist = np.ones(points.shape[0]) * defaultDist
+        print('\n### No array for maximum searching distance is defined. Using default value of {} m. ###'.format(defaultDist))
+
+    # Initialisation of output
+    result = []
+    dists = []
+
+    # Initialise parameters for distance search
+    INFTY = 1000000000000
+
+    print('\n### Generating rtree... ###')
+    idx = geomObjects.sindex
+
+    for ix, r in tqdm(points.iterrows(), total = points.shape[0], desc = 'Snapping in pBox...'):
+
+        p = r.geometry
+
+        MIN_SIZE = maxDist[ix]
+        max_dist = MIN_SIZE
+
+        pbox = (p.x - MIN_SIZE, p.y - MIN_SIZE, p.x + MIN_SIZE, p.y + MIN_SIZE)
+
+        hits = list(idx.intersection(pbox))
+        d = INFTY
+        nid = None
+
+        for h in hits:
+            new_d = p.distance(geomObjects.geometry.loc[h])
+
+            if (d >= new_d) & (new_d < max_dist):
+                d = new_d
+                nid = geomObjects.index[h]
+
+        if nid is None:
+            result.append(np.nan)
+            dists.append(d)
+
+        else:
+            result.append(nid)
+            dists.append(d)
+
+
+    return result, dists
 
 def calc_thermalLoss_pipe(
         net

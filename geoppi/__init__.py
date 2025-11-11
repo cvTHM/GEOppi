@@ -16,3 +16,5 @@ from .dimension_network_pipes import (update_ppi_results, assign_insulation_type
 
 from .pipe_characteristics import (load_hydraulic_pipe_characteristics, )
 
+from .line_density_calculation import (closest_lines_to_polygons, )
+

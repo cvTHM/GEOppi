@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 
+import pandapipes as ppi
 from pandapower.control.basic_controller import (BasicCtrl)
 from pandapower.control.util.auxiliary import (drop_same_type_existing_controllers, log_same_type_existing_controllers)
 from pandapower.auxiliary import (get_free_id)
@@ -23,7 +24,9 @@ def checkUserPFOptionsThermal(net, ctrlName:str):
             if pf_options['mode'] not in ('sequential', 'bidirectional', 'all', 'heat'): # Check if heat transfer calculation is included in user-defined pipeflow options
                 modee = pf_options['mode']
                 print(f'\n### Attention: Defined mode in user_pf_options of the network {modee} does not include heat transfer calculations. Make sure to set mode to any of ("sequential", "bidirectional", "all", "heat") as this is necessary for the defined controller type {ctrlName}. ###\n')
-            
+                return False
+            else:
+                return True
         else:
             print(f'\n### Attention: No user-defined option "mode" in user_pf_options found. Make sure to include mode from any of ("sequential", "bidirectional", "all", "heat") in user_pf_options as this is necessary for the defined controller type {ctrlName}. ###\n')
 
@@ -255,7 +258,12 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
         self.index = self.add_controller_to_net(net = net, in_service = True, initial_run = True, index = index, order = order, level = level, recycle = False, overwrite = True, drop_same_existing_ctrl = True, **kwargs)
 
         # Plausibility check for user-defined pipeflow options
-        checkUserPFOptionsThermal(net = net, ctrlName = "ppi_HeatConsumerSetTempCtrl")
+        th_user_pf = checkUserPFOptionsThermal(net = net, ctrlName = "ppi_HeatConsumerSetTempCtrl")
+        
+        if th_user_pf is not None:
+            if not th_user_pf:
+                ppi.set_user_pf_options(net = net, mode="sequential", reset = False)
+                print(f'\n... pf option mode is set to sequential.')
 
         # Save initial conditions of network
         ## During control step, ccontrolled_mdoit_kg_per_s in heat_cosnumer components is changed

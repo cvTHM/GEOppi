@@ -256,7 +256,6 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
 
         # Plausibility check for user-defined pipeflow options
         checkUserPFOptionsThermal(net = net, ctrlName = "ppi_HeatConsumerSetTempCtrl")
-        ppi.set
 
         # Save initial conditions of network
         ## During control step, ccontrolled_mdoit_kg_per_s in heat_cosnumer components is changed

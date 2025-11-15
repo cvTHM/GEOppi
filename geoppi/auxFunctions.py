@@ -560,7 +560,7 @@ def split_lines_at_length(
     lines_split.set_crs(cs, inplace = True)    
 
     if return_splittingPoints:
-        splittingPoints = gp.GeoDataFrame(geometry = lines_split['splitter'].to_list())
+        splittingPoints = gp.GeoDataFrame(geometry = lines['splitter'].to_list())
         #lines_split['splitter'].copy().rename({'splitter':'geometry'})
         lines_split.drop(columns = ['splitter'], inplace = True)
 

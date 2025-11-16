@@ -515,6 +515,7 @@ def split_lines_at_length(
         min_distance_last_segment:float,
         geom_col:str = 'geometry',
         keep_cols:bool = True,
+        keep_original_line_idx:bool = False,
         return_splittingPoints:bool = False
         ) -> gp.GeoDataFrame:
     
@@ -526,7 +527,8 @@ def split_lines_at_length(
     :param min_distance: flaot denoting the minimum distance the last segment of splitted lines shall maintain.\n
     :param geom_col: str denoting the nemae of the geometry columns. Defaults to "geometry"\n
     :param keep_cols: Boolean iof all attributes from GeoDataFrame lines shall be kept.\n
-    :param retunr_splittingPointS: Bool if GeoDataFrame with MultiPoint objects shall be returned as well.\n
+    :param keep_original_line_idx: Boolean if original row index of lines shall be transferred to output splittingPoints.\n
+    :param return_splittingPointS: Bool if GeoDataFrame with MultiPoint objects shall be returned as well.\n
     :return: GeoDataFrame of splitted line objects (and optionally GeoDataFrame of splitting points)
     '''
 
@@ -560,7 +562,7 @@ def split_lines_at_length(
     lines_split.set_crs(cs, inplace = True)    
 
     if return_splittingPoints:
-        splittingPoints = gp.GeoDataFrame(geometry = lines['splitter'].to_list())
+        splittingPoints = gp.GeoDataFrame(data = {'original_line_idx':lines.index} if keep_original_line_idx else None, geometry = lines['splitter'].to_list())
         #lines_split['splitter'].copy().rename({'splitter':'geometry'})
         lines_split.drop(columns = ['splitter'], inplace = True)
 

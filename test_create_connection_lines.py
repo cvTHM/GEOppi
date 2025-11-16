@@ -372,11 +372,9 @@ circumferential_points = create_circumferential_points(polygons = polys, npoints
 circumferential_points['unnID'] = polys['unnID'].copy()
 circumferential_points = circumferential_points.explode(index_parts = True).reset_index(drop = True)
 
-lines_split, splittingPoints = split_lines_at_length(lines = lines, distance = 1, min_distance_last_segment= 2, return_splittingPoints = True)
+lines_split, splittingPoints = split_lines_at_length(lines = lines, distance = 1, min_distance_last_segment= 2, return_splittingPoints = True, keep_original_line_idx = True)
 
 splittingPoints = splittingPoints.explode(index_parts = False).reset_index(drop = True)
-
-
 
 import matplotlib.pyplot as plt
 
@@ -391,23 +389,32 @@ import pandas as pd
 
 # Find closest object to each point (indicating index of closest line segment)
 idxs, distances = closest_objects_to_points(points = circumferential_points, geomObjects = splittingPoints, maxDist = np.ones(len(circumferential_points))*100)
-
-seriesIdx = pd.Series(idxs)
-distances = pd.Series(distances)      
     
 # Assign nearest street segment to each point at buildings' boundaries
-circumferential_points['nearestPoint']                            = seriesIdx.values
-circumferential_points['distanceToPoint']                         = distances.values
+circumferential_points['nearestPoint']                            = idxs
+circumferential_points['distanceToPoint']                         = distances
 
 # Find index of points which feature the shortes distance to adjacent line segment within group of points for each polygon
 idx_ps_min_distances = circumferential_points[~circumferential_points['nearestPoint'].isnull()].groupby(by='unnID')['distanceToPoint'].idxmin().values
 circumferential_points_ed = circumferential_points.loc[idx_ps_min_distances]
 
+# splittingPoints_ed = seriesIdx[seriesIdx.isin(list(circumferential_points_ed['nearestPoint']))]
+splittingPoints_ed = splittingPoints.iloc[circumferential_points_ed['nearestPoint'].to_numpy()]
+
+
+
+# %% Parse through splittingPoints_ed and insert them in closest line object
+
+for n, p in splittingPoints_ed.iterrows():
+    
+    p.geometry
+
+
 
 # %% Connect splitting points to points on polygon boundary with LineString objects
 
 # Coordinates of splitting points
-x1 = np.array(seriesIdx.values)[circumferential_points_ed['nearestPoint'].values]
+# x1 = np.array(seriesIdx.values)[circumferential_points_ed['nearestPoint'].values]
 
 
 

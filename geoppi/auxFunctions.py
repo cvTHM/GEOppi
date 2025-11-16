@@ -72,7 +72,7 @@ def create_circumferential_points(polygons:gp.GeoDataFrame, npoints:int = 10, lm
 
     return points
 
-def create_point_splitter_npoints(line, npoints:int = 8, lmin:float = 5):
+def create_point_splitter_npoints(line, npoints:int = 8, distance:float = None, lmin:float = 5):
 
     '''
     Create MultiPoint layer with points along idx_ps_min_distances given LineString geometry at idx_ps_min_distances predefined number of points (respecting minimum values for single line segments between points).
@@ -86,17 +86,21 @@ def create_point_splitter_npoints(line, npoints:int = 8, lmin:float = 5):
     import numpy as np
     from shapely.ops import unary_union
 
-    distances = np.round(np.linspace(0, line.length, npoints+1), 1) if line.length < 200 else np.round(np.arange(0, line.length, 20), 1)
+    if distance is None:
+        distances = np.round(np.linspace(0, line.length, npoints+1), 1)
+    else:
+        distances = np.round(np.arange(0, line.length, distance), 1)
     
     # If last element is shorter than lmin, skip last splitting point
     if line.length - distances[-1] < lmin:
         distances = distances[:-1]
 
 
-    points = [line.interpolate(distance) for distance in distances]
+    points = [line.interpolate(d) for d in distances]
     result = unary_union(points)
 
     return(result)
+
 
 def closest_objects_to_points(points:gp.GeoDataFrame, geomObjects:gp.GeoDataFrame, **kwargs)->tuple[np.array, np.array]:
 
@@ -503,6 +507,68 @@ def split_lines(
     lines_out.set_crs(lines.crs, inplace = True)
 
     return (lines_out)
+
+
+def split_lines_at_length(
+        lines:gp.GeoDataFrame,
+        distance:float,
+        min_distance_last_segment:float,
+        geom_col:str = 'geometry',
+        keep_cols:bool = True,
+        return_splittingPoints:bool = False
+        ) -> gp.GeoDataFrame:
+    
+    '''
+    Function to split shapely.LineString objects in geopandas GeoDataFrame at given lengths along their path.\n
+
+    :param lines: geopandas.GeoDataFrame with shapely.LineString objects.\n
+    :param distance: float defining the desired equidistant lengths at which lkines shall be split.\n
+    :param min_distance: flaot denoting the minimum distance the last segment of splitted lines shall maintain.\n
+    :param geom_col: str denoting the nemae of the geometry columns. Defaults to "geometry"\n
+    :param keep_cols: Boolean iof all attributes from GeoDataFrame lines shall be kept.\n
+    :param retunr_splittingPointS: Bool if GeoDataFrame with MultiPoint objects shall be returned as well.\n
+    :return: GeoDataFrame of splitted line objects (and optionally GeoDataFrame of splitting points)
+    '''
+
+    cs = lines.crs
+    
+    # Create temporary Multipoint object at which to split lines
+    lines['splitter']                   = lines[geom_col].apply(lambda x: create_point_splitter_npoints(x, distance = distance, lmin = min_distance_last_segment))
+
+    
+    if keep_cols:
+
+        lines_split                         = lines.head(0).copy()
+
+        for row, line in lines.iterrows():
+
+            # lines_new is of type GeometryCollection
+            geometries                      = [n for n in split_lines_at_points(line[geom_col], line['splitter']).geoms]
+            lines_new                       = pd.concat([pd.DataFrame(line).T] * len(geometries))
+            lines_new[geom_col]             = geometries
+
+            lines_split                     = pd.concat((lines_split, lines_new), ignore_index = True)
+
+
+    else:
+        # Create temporary Multipoint object at which to split lines
+        lines['splitter']                   = lines[geom_col].apply(lambda x: create_point_splitter_npoints(x, distance = distance, lmin = min_distance_last_segment))
+
+        # Split lines
+        lines_split                         = lines.apply(lambda y: split_lines_at_points(y['geometry'], y['splitter']), axis = 1)
+
+    lines_split.set_crs(cs, inplace = True)    
+
+    if return_splittingPoints:
+        splittingPoints = gp.GeoDataFrame(geometry = lines['splitter'].to_list())
+        #lines_split['splitter'].copy().rename({'splitter':'geometry'})
+        lines_split.drop(columns = ['splitter'], inplace = True)
+
+        return lines_split, gp.GeoDataFrame(splittingPoints, geometry = 'geometry', crs = lines.crs)
+
+    else:
+        lines_split.drop(columns = ['splitter'], inplace = True)
+        return lines_split
 
 def extractRasterValsAtPoints(
         j:gp.GeoDataFrame, 

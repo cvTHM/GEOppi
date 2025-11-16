@@ -1,4 +1,5 @@
-import geopandas as gpd
+# %%
+import geopandas as gp
 from shapely.geometry import LineString, Point, MultiPoint
 from shapely.ops import nearest_points, split
 import numpy as np
@@ -46,7 +47,7 @@ def create_shortest_connections_optimized(polygons_gdf, lines_gdf, buffer_dist=0
             connection_lines.append(possible_connection_lines_poly[np.argmin(allLengths)])        
 
 
-    connection_gdf = gpd.GeoDataFrame(geometry=connection_lines, crs=polygons_gdf.crs)
+    connection_gdf = gp.GeoDataFrame(geometry=connection_lines, crs=polygons_gdf.crs)
 
     def round_point(pt, precision=0.01):
         """Rundet die Koordinaten eines Punktes auf die angegebene Präzision."""
@@ -101,7 +102,7 @@ def create_shortest_connections_optimized(polygons_gdf, lines_gdf, buffer_dist=0
             lambda l: extend_line(l, extend_connection)
         )
         # 2. Räumlicher Index für die Verbindungslinien
-        splitter_sindex = gpd.GeoSeries(extended_conns, crs=connection_lines_gdf.crs).sindex
+        splitter_sindex = gp.GeoSeries(extended_conns, crs=connection_lines_gdf.crs).sindex
 
         split_lines = []
         for line in lines_gdf.geometry:
@@ -150,7 +151,7 @@ def create_shortest_connections_optimized(polygons_gdf, lines_gdf, buffer_dist=0
                 split_lines.extend([seg for seg in result.geoms if seg.length > precision])
             else:
                 split_lines.append(line)
-        return gpd.GeoDataFrame(geometry=split_lines, crs=lines_gdf.crs)
+        return gp.GeoDataFrame(geometry=split_lines, crs=lines_gdf.crs)
 
     split_lines_gdf = fast_split_lines_by_points(lines_gdf = lines_gdf, connection_lines_gdf = connection_gdf, extend_connection = 0.1, precision = 0.01, tolerance = 1e-08)
 
@@ -198,7 +199,7 @@ def create_shortest_connections_optimized_v2(polygons_gdf, lines_gdf, buffer_dis
             connection_lines.append(possible_connection_lines_poly[np.argmin(allLengths)])        
 
 
-    connection_gdf = gpd.GeoDataFrame(geometry=connection_lines, crs=polygons_gdf.crs)
+    connection_gdf = gp.GeoDataFrame(geometry=connection_lines, crs=polygons_gdf.crs)
 
     def round_point(pt, precision=0.01):
         x = round(pt.x / precision) * precision
@@ -290,8 +291,8 @@ def create_shortest_connections_optimized_v2(polygons_gdf, lines_gdf, buffer_dis
                 connection_lines.append(LineString([best_start, rounded_target]))
                 crossing_points.append(rounded_target)
 
-        connection_gdf = gpd.GeoDataFrame(geometry=connection_lines, crs=polygons_gdf.crs)
-        crossing_points_gdf = gpd.GeoDataFrame(geometry=crossing_points, crs=polygons_gdf.crs)
+        connection_gdf = gp.GeoDataFrame(geometry=connection_lines, crs=polygons_gdf.crs)
+        crossing_points_gdf = gp.GeoDataFrame(geometry=crossing_points, crs=polygons_gdf.crs)
         return connection_gdf, crossing_points_gdf
 
     def fast_split_lines_by_points(lines_gdf, connection_lines_gdf, precision=0.01, tolerance=1e-8, extend_connection=1.0):
@@ -303,7 +304,7 @@ def create_shortest_connections_optimized_v2(polygons_gdf, lines_gdf, buffer_dis
         extended_conns = connection_lines_gdf.geometry.apply(
             lambda l: extend_line(l, extend_connection)
         )
-        splitter_sindex = gpd.GeoSeries(extended_conns, crs=connection_lines_gdf.crs).sindex
+        splitter_sindex = gp.GeoSeries(extended_conns, crs=connection_lines_gdf.crs).sindex
 
         split_lines = []
         for line in tqdm(lines_gdf.geometry, total = len(lines_gdf)):
@@ -346,7 +347,7 @@ def create_shortest_connections_optimized_v2(polygons_gdf, lines_gdf, buffer_dis
                 split_lines.extend([seg for seg in result.geoms if seg.length > precision])
             else:
                 split_lines.append(line)
-        return gpd.GeoDataFrame(geometry=split_lines, crs=lines_gdf.crs)
+        return gp.GeoDataFrame(geometry=split_lines, crs=lines_gdf.crs)
     
     # Aufrufe
     connection_lines_gdf, crossing_points_gdf = generate_precise_connection_lines(polygons_gdf, lines_gdf)
@@ -356,43 +357,95 @@ def create_shortest_connections_optimized_v2(polygons_gdf, lines_gdf, buffer_dis
     return connection_gdf, split_lines_gdf
 
 
+from geoppi.auxFunctions import (nnearest, create_circumferential_points, create_point_splitter_npoints, split_lines_at_length, closest_objects_to_points)
+
+cs = 'EPSG:25832'
+
+lines = gp.read_file(r'geoppi/examples/data/lineSeparation/lines_separation_raw.gpkg').to_crs(cs)
+polys = gp.read_file(r'geoppi/examples/data/lineSeparation/buildings.gpkg').to_crs(cs)
+
 
 # %%
 
-# -*- coding: utf-8 -*-
+polys['unnID'] = np.arange(len(polys))
+circumferential_points = create_circumferential_points(polygons = polys, npoints = 10, lmin = 2)
+circumferential_points['unnID'] = polys['unnID'].copy()
+circumferential_points = circumferential_points.explode(index_parts = True).reset_index(drop = True)
+
+lines_split, splittingPoints = split_lines_at_length(lines = lines, distance = 1, min_distance_last_segment= 2, return_splittingPoints = True)
+
+splittingPoints = splittingPoints.explode(index_parts = False).reset_index(drop = True)
+
+
+
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots()
+lines_split.plot(ax = ax)
+splittingPoints.plot(ax = ax)
+plt.show()
+
+
+# %% Find closest points for each polygon
+import pandas as pd
+
+# Find closest object to each point (indicating index of closest line segment)
+idxs, distances = closest_objects_to_points(points = circumferential_points, geomObjects = splittingPoints, maxDist = np.ones(len(circumferential_points))*100)
+
+seriesIdx = pd.Series(idxs)
+distances = pd.Series(distances)      
+    
+# Assign nearest street segment to each point at buildings' boundaries
+circumferential_points['nearestPoint']                            = seriesIdx.values
+circumferential_points['distanceToPoint']                         = distances.values
+
+# Find index of points which feature the shortes distance to adjacent line segment within group of points for each polygon
+idx_ps_min_distances = circumferential_points[~circumferential_points['nearestPoint'].isnull()].groupby(by='unnID')['distanceToPoint'].idxmin().values
+circumferential_points_ed = circumferential_points.loc[idx_ps_min_distances]
+
+
+# %% Connect splitting points to points on polygon boundary with LineString objects
+
+# Coordinates of splitting points
+x1 = np.array(seriesIdx.values)[circumferential_points_ed['nearestPoint'].values]
+
+
+
+
+
 
 
 # %% Imports
 
-import momepy
-import geopandas as gp
-from pathlib import Path
+# import momepy
+# import geopandas as gp
+# from pathlib import Path
 
-from suitable_network_routing import (network_span_dfs_level_search)
+# from geoppi.suitable_network_routing import (network_span_dfs_level_search)
 
 
 
-# %% Load data
+# # %% Load data
 
-flp = Path('C:/GitLab/paper_generic_network_creation/data/lineDensity')
-flp_out = flp
+# flp = Path('C:/GitLab/paper_generic_network_creation/data/lineDensity')
+# flp_out = flp
 
-# Coordinate system
-cs = 'EPSG:25832'
+# # Coordinate system
+# cs = 'EPSG:25832'
 
-lines               = gp.read_file(flp / Path(r'Streets_LineDensity_bestand_renov_v1.gpkg')).explode(index_parts = False).to_crs(cs)
-lines['length']     = lines.geometry.length
-lines['inverse_ld_demand_use_th'] = 1/lines['ld_demand_use_th']
+# lines               = gp.read_file(flp / Path(r'Streets_LineDensity_bestand_renov_v1.gpkg')).explode(index_parts = False).to_crs(cs)
+# lines['length']     = lines.geometry.length
+# lines['inverse_ld_demand_use_th'] = 1/lines['ld_demand_use_th']
 
-startpoints         = gp.read_file(flp / Path(r'startpointsProducers.gpkg')).to_crs(cs)
+# startpoints         = gp.read_file(flp / Path(r'startpointsProducers.gpkg')).to_crs(cs)
  
-consumerConnections = gp.read_file(flp / Path(r'Points_consumerIntersection.gpkg')).to_crs(cs)
+# consumerConnections = gp.read_file(flp / Path(r'Points_consumerIntersection.gpkg')).to_crs(cs)
 
-buildings = gp.read_file(flp / Path(r'Buildings_LineDensity_renov_v1.gpkg')).explode(index_parts = False)
+# buildings = gp.read_file(flp / Path(r'Buildings_LineDensity_renov_v1.gpkg')).explode(index_parts = False)
 
-buildings = buildings.to_crs(lines.crs)
+# buildings = buildings.to_crs(lines.crs)
 
 
-# %%
-# Aufruf
-connection_lines, lines_sep = create_shortest_connections_optimized_v2(polygons_gdf = buildings, lines_gdf = lines, buffer_dist = 0.1)
+# # %%
+# # Aufruf
+# connection_lines, lines_sep = create_shortest_connections_optimized_v2(polygons_gdf = buildings, lines_gdf = lines, buffer_dist = 0.1)

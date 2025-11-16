@@ -149,7 +149,7 @@ if __name__ == '__main__':
         buildings = assign_attr_by_max_intersection_area(gp1 = buildings, gp_source=hex, gp1_id = buildings_uniqueID, attr=hex_uniqueID)
 
     
-    # Assign unique ID of losest line bject to buildings
+    # Assign unique ID of closest line bject to buildings
     buildings = closest_lines_to_polygons(polygons = buildings, lines = lines, maxDistances = maxDistancesArray)
 
     # Transfer unique ID of lines to buildings instead of line index

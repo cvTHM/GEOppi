@@ -389,7 +389,7 @@ pmin_target = 1.5 # bar
 ppi.set_user_pf_options(net = netFeedReflux, mode="sequential", friction_model = friction_model, quit_on_inconsistency_connectivity=True, reset = True)
 
 # Create controllers 
-netFeedReflux = implement_controllers(
+netFeedReflux = geoppi.implement_controllers(
     net = netFeedReflux,
     drop_all = True,
     pminCtrlDict = {

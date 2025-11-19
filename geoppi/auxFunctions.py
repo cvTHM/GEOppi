@@ -15,7 +15,7 @@ def assign_attr_by_max_intersection_area(gp1, gp_source, attr, gp1_id='id'):
     '''
     Function to assign attr from GeoDataFrame gp_source to input-GeoDataFrame gp1 by maximum intersection area between each object of gp1 and gp_source.
 
-    :param gp1: GeoDataFrame containing objects to which attributes from gp_souce shall be matched.\n
+    :param gp1: GeoDataFrame containing objects to which attributes from gp_source shall be matched.\n
     :param gp_source: GeoDataFrame containing attributes which shall be transferred to objects in gp1 with max. intersection.\n
     :param attr: str denoting the attribute that shall be transferred.\n
     :param gp1_id: str denoting a unique identifier column name for objects in gp1.\n        
@@ -35,8 +35,15 @@ def assign_attr_by_max_intersection_area(gp1, gp_source, attr, gp1_id='id'):
             gp1.drop(columns = attr, inplace = True)
             print('\nAttribute ' + attr + ' already contained in gp1. Column is dropped and overwritten.')
 
-        gtemp = gp.overlay(gp1, gp_source[[attr, 'geometry']], how='intersection')
-        gtemp['temporary'] = gtemp.area
+        gtemp = gp.overlay(gp1, gp_source[[attr, 'geometry']], how='intersection', keep_geom_type = False)
+
+        gtemp['temporary'] = gtemp.length
+
+        if (all(gp1.geom_type.isin(['LineString', 'MultiLineString'])) & all(gp_source.geom_type.isin(['Polygon', 'MultiPolygon']))) | (all(gp_source.geom_type.isin(['LineString', 'MultiLineString'])) & all(gp1.geom_type.isin(['Polygon', 'MultiPolygon']))):        
+            gtemp['temporary'] = gtemp.length
+
+        elif (all(gp1.geom_type.isin(['Polygon', 'MultiPolygon'])) & all(gp_source.geom_type.isin(['Polygon', 'MultiPolygon']))):
+            gtemp['temporary'] = gtemp.area
 
         idxmax = gtemp.groupby(by=gp1_id)['temporary'].idxmax()
         ls = gtemp.loc[idxmax.values, [gp1_id, attr]].set_index(gp1_id, drop=True)

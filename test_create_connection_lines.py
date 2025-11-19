@@ -4,6 +4,13 @@ from shapely.geometry import LineString, Point, MultiPoint
 from shapely.ops import nearest_points, split
 import numpy as np
 from tqdm import tqdm
+import shapely
+import shapely.plotting
+
+from shapely.ops import unary_union
+import matplotlib.pyplot as plt
+
+from geoppi.auxFunctions import assign_attr_by_max_intersection_area
 
 def create_shortest_connections_optimized(polygons_gdf, lines_gdf, buffer_dist=0.1):
     # Schritt 1: Baue einen räumlichen Index für die Linien
@@ -357,20 +364,65 @@ def create_shortest_connections_optimized_v2(polygons_gdf, lines_gdf, buffer_dis
     return connection_gdf, split_lines_gdf
 
 
+def extend_line(line, offset):
+    coords = list(line.coords)
+    # Get the direction vector at the start of the LineString
+    start_vec = np.array(coords[1]) - np.array(coords[0])
+    start_dir = start_vec / np.linalg.norm(start_vec)
+    # Calculate the new start point by moving backwards along the direction
+    new_start = np.array(coords[0]) - offset * start_dir
+
+    # Get the direction vector at the end of the LineString
+    end_vec = np.array(coords[-1]) - np.array(coords[-2])
+    end_dir = end_vec / np.linalg.norm(end_vec)
+    # Calculate the new end point by moving forwards along the direction
+    new_end = np.array(coords[-1]) + offset * end_dir
+
+    # Build a new coordinate list with the extended endpoints
+    new_coords = [tuple(new_start)] + coords[1:-1] + [tuple(new_end)]
+    return LineString(new_coords)
+
 from geoppi.auxFunctions import (nnearest, create_circumferential_points, create_point_splitter_npoints, split_lines_at_length, closest_objects_to_points)
 
 cs = 'EPSG:25832'
+
 
 lines = gp.read_file(r'geoppi/examples/data/lineSeparation/lines_separation_raw.gpkg').to_crs(cs)
 polys = gp.read_file(r'geoppi/examples/data/lineSeparation/buildings.gpkg').to_crs(cs)
 
 
 # %%
+'''
+
+
+lines_short = gp.read_file(r'geoppi/examples/data/lineSeparation/lines_short.gpkg').to_crs(cs)
+lines_short['ID'] = np.arange(len(lines_short))
+
+fig, ax = plt.subplots(1,2)
+
+for line in list(lines_short.geometry):
+    shapely.plotting.plot_line(line=line, ax=ax[0], add_points=True, color=np.random.rand(3))
+
+# After union
+multiline = unary_union(lines_short.geometry)
+single_parts = list(multiline.geoms)
+
+for line in single_parts:
+    shapely.plotting.plot_line(line=line, ax=ax[1], add_points=True, color=np.random.rand(3))
+
+
+print(f'Anzahl lines_short = {len(lines_short)}')
+# print(f'Anzahl multiline objekte = {len(gp.GeoDataFrame(geometry = multiline))}')
+'''
+
+# %%
+
+lines['ID'] = np.arange(len(lines))
 
 polys['unnID'] = np.arange(len(polys))
-circumferential_points = create_circumferential_points(polygons = polys, npoints = 10, lmin = 2)
-circumferential_points['unnID'] = polys['unnID'].copy()
-circumferential_points = circumferential_points.explode(index_parts = True).reset_index(drop = True)
+circumferentialPoints = create_circumferential_points(polygons = polys, npoints = 10, lmin = 2)
+circumferentialPoints['unnID'] = polys['unnID'].copy()
+circumferentialPoints = circumferentialPoints.explode(index_parts = True).reset_index(drop = True)
 
 lines_split, splittingPoints = split_lines_at_length(lines = lines, distance = 1, min_distance_last_segment= 2, return_splittingPoints = True, keep_original_line_idx = True)
 
@@ -388,37 +440,44 @@ plt.show()
 import pandas as pd
 
 # Find closest object to each point (indicating index of closest line segment)
-idxs, distances = closest_objects_to_points(points = circumferential_points, geomObjects = splittingPoints, maxDist = np.ones(len(circumferential_points))*100)
+idxs, distances = closest_objects_to_points(points = circumferentialPoints, geomObjects = splittingPoints, maxDist = np.ones(len(circumferentialPoints))*100)
     
 # Assign nearest street segment to each point at buildings' boundaries
-circumferential_points['nearestPoint']                            = idxs
-circumferential_points['distanceToPoint']                         = distances
+circumferentialPoints['nearestPoint']                            = idxs
+circumferentialPoints['distanceToPoint']                         = distances
 
 # Find index of points which feature the shortes distance to adjacent line segment within group of points for each polygon
-idx_ps_min_distances = circumferential_points[~circumferential_points['nearestPoint'].isnull()].groupby(by='unnID')['distanceToPoint'].idxmin().values
-circumferential_points_ed = circumferential_points.loc[idx_ps_min_distances]
+idx_ps_min_distances = circumferentialPoints[~circumferentialPoints['nearestPoint'].isnull()].groupby(by='unnID')['distanceToPoint'].idxmin().values
+circumferentialPoints_ed = circumferentialPoints.loc[idx_ps_min_distances]
+circumferentialPoints_ed['nearestPoint_geometry'] = splittingPoints.iloc[circumferentialPoints_ed['nearestPoint'].values].geometry.values
 
-# splittingPoints_ed = seriesIdx[seriesIdx.isin(list(circumferential_points_ed['nearestPoint']))]
-splittingPoints_ed = splittingPoints.iloc[circumferential_points_ed['nearestPoint'].to_numpy()]
+# Create lines between buildings circumferential points and splitting points
+connectionLines = gp.GeoDataFrame(geometry = [extend_line(LineString([p1, p2]), offset = 0.1) for p1, p2 in zip(circumferentialPoints_ed['geometry'], circumferentialPoints_ed['nearestPoint_geometry'])]).set_crs(cs)
 
+# Separate lines at intersections
+allLines_temp = unary_union(pd.concat((lines.geometry, connectionLines.geometry), axis = 0))
 
+allLines = gp.GeoDataFrame(geometry = list(allLines_temp.geoms)).set_crs(cs)
+allLines['id'] = np.arange(len(allLines))
+# allLines = gp.GeoDataFrame(geometry = allLines_temp).set_crs(cs)
+
+# %%
+lines_buff = lines.copy()
+lines_buff.geometry = lines_buff.geometry.buffer(0.05)
+
+allLines_buff = allLines.copy()
+allLines_buff.geometry = allLines_buff.geometry.buffer(0.05)
+
+allLines_buff = assign_attr_by_max_intersection_area(gp1 = allLines, gp_source = lines_buff, gp1_id = 'id', attr = 'ID')
+
+allLines_attrs = allLines.copy()
+allLines_attrs['ID'] = allLines_buff['ID']
+
+allLines_attrs.to_file(r'D:\Git\geoppi\geoppi\examples\data\lineSeparation\lines_separated_out.shp')
+
+lines_buff.drop(columns = ['splitter']).to_file(r'D:\Git\geoppi\geoppi\examples\data\lineSeparation\lines_buff.shp')
 
 # %% Parse through splittingPoints_ed and insert them in closest line object
-
-for n, p in splittingPoints_ed.iterrows():
-    
-    p.geometry
-
-
-
-# %% Connect splitting points to points on polygon boundary with LineString objects
-
-# Coordinates of splitting points
-# x1 = np.array(seriesIdx.values)[circumferential_points_ed['nearestPoint'].values]
-
-
-
-
 
 
 

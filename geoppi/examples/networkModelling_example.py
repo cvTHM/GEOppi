@@ -236,22 +236,24 @@ gdf[(gdf['in_service'] ==True) & (gdf[connectionTypeAttr] == 'distribution')].pl
 leg = ax1[0].get_legend()
 leg.set_bbox_to_anchor((1.1,0,0.2,0.5))
 
-ax1[1].set_title('Affiliation with loop', **tfont)
-gdf[(gdf['in_service'] ==True) & (gdf[connectionTypeAttr] == 'distribution')].plot(
-    ax = ax1[1], 
-    column = 'loop', 
-    cmap=plt.get_cmap('Paired'),
-    legend = True,
-    categorical = True,
-    missing_kwds = dict(color = 'grey', label = '-'),
-    legend_kwds = {'title':'Loop no.', 
-                   'loc':'lower right',
-                   'markerscale':1, 
-                    'title_fontsize':'xx-large', 
-                    'fontsize':'xx-large'},
-    **styles)
-leg = ax1[1].get_legend()
-leg.set_bbox_to_anchor((1.1,0,0.2,0.5))
+
+if not all(gdf.loc[(gdf['in_service'] ==True) & (gdf['connectionType'] == 'distribution'), 'loop'].isna()):
+    ax1[1].set_title('Affiliation with loop', **tfont)
+    gdf[(gdf['in_service'] ==True) & (gdf[connectionTypeAttr] == 'distribution')].plot(
+        ax = ax1[1], 
+        column = 'loop', 
+        cmap=plt.get_cmap('Paired'),
+        legend = True,
+        categorical = True,
+        missing_kwds = dict(color = 'grey', label = '-'),
+        legend_kwds = {'title':'Loop no.', 
+                    'loc':'lower right',
+                    'markerscale':1, 
+                        'title_fontsize':'xx-large', 
+                        'fontsize':'xx-large'},
+        **styles)
+    leg = ax1[1].get_legend()
+    leg.set_bbox_to_anchor((1.1,0,0.2,0.5))
 
 ax1[2].set_title('Spec. pressure loss', **tfont)
 gdf[(gdf['in_service'] ==True) & (gdf[connectionTypeAttr] == 'distribution')].plot(

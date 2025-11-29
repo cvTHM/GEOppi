@@ -1,5 +1,3 @@
-# %%
-
 # -*- coding: utf-8 -*-
 
 import pandas as pd
@@ -81,12 +79,13 @@ def closest_lines_to_polygons(
 
     return polygons
 
-def summed_attributes_on_lines(
+def sum_attributes_on_lines(
         lines:gp.GeoDataFrame,
         polygons:gp.GeoDataFrame,
         spatial_distribution:gp.GeoDataFrame = None,
         spatial_connection_ratio:str = None,
         target_attr:str = None,
+        agg_func:str = 'median',
         additional_attr:list = None,
         rand_sampling:bool = False,
         nSamples:int = 1,
@@ -94,6 +93,26 @@ def summed_attributes_on_lines(
         nPolygons_min:int = 1,
         func_max_distance = None
     )->gp.GeoDataFrame:
+
+    """
+    Function that sums up specified attributes of polygons on closest line segments. May be used to calculate line densities of heating or arbeitrary other demands.\n
+    Allows for randomized sampling of chosen polygons selected for the final summary of attributes on line segments if desired connection ratio is not equal to 1.\n
+    Allows for spatial distribution of different connection ratios in provided polygon objects *spatial_distribution*.\n
+
+    :param lines: GeoDataFrame of line objects (e.g. street segments) on which attributes summary shall be trasnferred.\n
+    :param polygons: GeoDataFrame of polygon objects from which attributes shall be transferred to closest line segments.\n
+    :param spatial_distribution: GeoDataFrame of polygon objects containing information on spatially varying target connection ratios. Polygons are chose nbased on their matching object in *spatial_distribution* to determine if they are chosen for the calculation of summed attributes.\n
+    :param spatial_connection_ratio: str denoting the attribute name in *spatial_distribution* in which infromation of target connection ratio in the objects is stored.\n
+    :param target_attr: str denoting the attribute from *polygons* which shall be used to perform randomized sampling if target connection ratio is less than 1. NOTE: The sample with the median, min or max summed value is chosen based on the provided *agg_func*.\n
+    :param agg_func: str denoting the final selection of samples, defaults to 'median'.\n
+    :param additional_attr: list of str denoting additional attributes apart from *target_attr* that shall be summed and transferred to line segments.\n
+    :param nSamples: int denoting the number of samples to perform.\n
+    :param target_connection_ratio: float denoting the desired connection ratio of a) polygons which do not intersect with provided polygon objects from *spatial_distribution* or b) if *spatial_distribution* is not provided.\n
+    :param nPolygons_min: int denoting a minimum number of polygons to perform randomized sampling. If fewer than *nPolygons_min* polygons are found to match with an object from *spatial_distribution* all matching polygons are chosen.\n
+    :param func_max_distance: function-like that can be provided mapping minimum line densities of *target_attr* in the connection lines from *lines* to *polygons* to consider the polygons. If the line density is not sufficient in their connection lines (based on straight distance), the polygons are not taken intop account for summary of any of the attributes.\n
+
+    :returns: lines_out denoting GeoDataFrame of edited line objects with summary of specified attributes AND selected_polygons as GeoDataFrame containting polygon objects used for the attribute summary.
+    """
 
     ### Initializations
     cs = lines.crs
@@ -108,7 +127,7 @@ def summed_attributes_on_lines(
         print(f'\n### Attribute {target_attr} not found in polygons attributes. Aborting...')
         return
        
-    summed_target_attrs = set([col for col in additional_attr if col in polygons.columns] + [target_attr])
+    summed_target_attrs = set([col for col in additional_attr if (col in polygons.columns) and (additional_attr is not None)] + [target_attr])
 
     # Define unique IDs for identification and matching
     polygons_uniqueID = 'unique_ID_polys'
@@ -194,12 +213,18 @@ def summed_attributes_on_lines(
 
                 # Get randomized selection with median heat demand
                 # Index of median (no. of sample featuring median heat demand)
+                if agg_func == 'median':
+                    med                                                    = np.sort(res_arr_target_attr)[len(res_arr_target_attr)//2-1]                
+                    idx_final                                              = np.argmin(abs(res_arr_target_attr - med))
 
-                med                                                    = np.sort(res_arr_target_attr)[len(res_arr_target_attr)//2-1]
-                idxmedian                                              = np.argmin(abs(res_arr_target_attr - med))
+                elif agg_func == 'max':
+                    idx_final                                              = np.argmax(abs(res_arr_target_attr))
+
+                elif agg_func == 'min':
+                    idx_final                                              = np.argmin(abs(res_arr_target_attr))
 
                 # Use selected sample of buildings in network to assign heat demand to single pipe sections
-                selected_polygons = pd.concat((selected_polygons, sampleList[idxmedian]))
+                selected_polygons = pd.concat((selected_polygons, sampleList[idx_final]))
 
         # No spatial distribution desired - target_connection ratio applies to all polygons        
         else:
@@ -230,15 +255,28 @@ def summed_attributes_on_lines(
             # Get randomized selection with median heat demand
             # Index of median (no. of sample featuring median heat demand)
 
-            med                                                    = np.sort(res_arr_target_attr)[len(res_arr_target_attr)//2-1]
-            idxmedian                                              = np.argmin(abs(res_arr_target_attr - med))
+            if agg_func == 'median':
+                med                                                    = np.sort(res_arr_target_attr)[len(res_arr_target_attr)//2-1]                
+                idx_final                                              = np.argmin(abs(res_arr_target_attr - med))
+
+            elif agg_func == 'max':
+                idx_final                                              = np.argmax(abs(res_arr_target_attr))
+
+            elif agg_func == 'min':
+                idx_final                                              = np.argmin(abs(res_arr_target_attr))
 
             # Use selected sample of buildings in network to assign heat demand to single pipe sections
-            selected_polygons = pd.concat((selected_polygons, sampleList[idxmedian]))
+            selected_polygons = pd.concat((selected_polygons, sampleList[idx_final]))
+
+
+    else: # No randomized sampling
+        print(f'\n... No randomized sampling is desired. A target conection ratio of 100% is applied.')
+        selected_polygons = polygons.copy()
 
     # Change back matching with spatial distribution from NA to None
-    polygons.loc[polygons[spatial_uniqueID] == 'NA', spatial_uniqueID] = None
-    selected_polygons.loc[selected_polygons[spatial_uniqueID] == 'NA', spatial_uniqueID] = None
+    if spatial_uniqueID in polygons.columns:    
+        polygons.loc[polygons[spatial_uniqueID] == 'NA', spatial_uniqueID] = None
+        selected_polygons.loc[selected_polygons[spatial_uniqueID] == 'NA', spatial_uniqueID] = None
 
     ### Transfer results for summed attributes to line sections
     polygons['usage_ld_calc'] = False # Initialisation
@@ -259,260 +297,5 @@ def summed_attributes_on_lines(
     
 
     return lines_out, selected_polygons
-
-# %%
-
-if __name__ == '__main__':
-
-    import os
-    from pathlib import Path
-
-    cs = 'EPSG:25832'
-
-    ## Load example data
-    flp = os.getcwd() / Path(r'examples/data/exampleNetwork/')
-    lines = gp.read_file(flp / Path(r'streetsRaw.gpkg')).to_crs(cs)
-
-    buildings = gp.read_file(flp / Path(r'buildings.gpkg')).to_crs(cs).drop(columns = 'nearestline')
-
-    hex = gp.read_file(flp / Path(r'hex_div.gpkg')).to_crs(cs)
-
-    # Define whether a randomized sampling in each hexagon with aim connection ratio shall take place
-    rand_sampling = True
-
-    # Number of randomized samples for selection of buildings to attain aimAG (sample with median heat demand is chosen)
-    nSamples = 1
-
-    # Define minimum number of buildings which shall be found within single hexagon below which the aimAG is ignored and ALL buildings are considered for calculation
-    nBuildings_min = 1
-
-    # Define aim of connection ratio within each subdivision of the regarded area in hex_div
-    aimAG = 1
-
-    # Define hexagon-specific connection ratio as attribute name of its value in hex
-    attr_hex_CR = 'connectionRatio'
-
-    # Define attribute from buildings for calculation of line density
-    target_attr = 'demand_use_th'
-
-    # Define additional attributes from the buildings layer which shall be summed on closest line objects
-    summed_target_attrs = ['demand_use_th_2045_san']
-
-    # Define maximum distance between buildings and line objects to include them into calculation of line density
-    # -> Example uses function-like distance calculation
-    def calc_distance_from_heat_demand(
-        heat_demand, 
-        min_line_density = 1000, # At least line density of 1 MWh/m at house connection line to assign closest line to polygon
-        minLimit = 10,
-        maxLimit = 100):
-
-        return(min(maxLimit, max(minLimit, heat_demand/min_line_density)) )
-
-    maxDistancesArray = np.array(list(map(lambda x: calc_distance_from_heat_demand(x, min_line_density = 1.7, minLimit = 10), np.array(buildings[target_attr]))))
-
-    ### Start calculation
-
-    lines_out, polys_out = summed_attributes_on_lines(
-        polygons = buildings,
-        lines = lines,
-        spatial_distribution = hex,
-        rand_sampling = rand_sampling,
-        nSamples = nSamples,
-        nPolygons_min = nBuildings_min,
-        target_connection_ratio = aimAG,
-        spatial_connection_ratio = attr_hex_CR,
-        target_attr = 'demand_use_th',
-        additional_attr = summed_target_attrs,
-        func_max_distance = calc_distance_from_heat_demand
-    )
-
-lines_out.to_file(flp / Path(f'results/streetsRaw_lineDensity_calc_final.gpkg'), driver  ='GPKG')
-
-polys_out.to_file(flp / Path(f'results/buildings_lineDensity_calc_final.gpkg'), driver = 'GPKG')
-
-
-
-#     import os
-#     from pathlib import Path
-
-#     cs = 'EPSG:25832'
-
-#     ## Load example data
-#     flp = os.getcwd() / Path(r'examples/data/exampleNetwork/')
-#     lines = gp.read_file(flp / Path(r'streetsRaw.gpkg')).to_crs(cs)
-
-#     buildings = gp.read_file(flp / Path(r'buildings.gpkg')).to_crs(cs).drop(columns = 'nearestline')
-
-#     hex = gp.read_file(flp / Path(r'hex_div.gpkg')).to_crs(cs)
-
-#     # Define whether a randomized sampling in each hexagon with aim connection ratio shall take place
-#     rand_sampling = True
-
-#     # Number of randomized samples for selection of buildings to attain aimAG (sample with median heat demand is chosen)
-#     nSamples = 10
-
-#     # Define minimum number of buildings which shall be found within single hexagon below which the aimAG is ignored and ALL buildings are considered for calculation
-#     nBuildings_min = 1
-
-#     # Define aim of connection ratio within each subdivision of the regarded area in hex_div
-#     aimAG = 1
-
-#     # Define hexagon-specific connection ratio as attribute name of its value in hex
-#     attr_hex_CR = 'connectionRatio'
-
-#     # Define attribute from buildings for calculation of line density
-#     target_attr = 'demand_use_th'
-
-#     # Define additional attributes from the buildings layer which shall be summed on closest line objects
-#     summed_target_attrs = []
-
-#     # Define maximum distance between buildings and line objects to include them into calculation of line density
-#     # -> Example uses function-like distance calculation
-#     def calc_distance_from_heat_demand(
-#         heat_demand, 
-#         min_line_density = 1.5*1e3, 
-#         minLimit = 10,
-#         maxLimit = 100):
-
-#         return(min(maxLimit, max(minLimit, heat_demand/min_line_density)) )
-
-#     maxDistancesArray = np.array(list(map(lambda x: calc_distance_from_heat_demand(x, min_line_density = 1.7, minLimit = 10), np.array(buildings[target_attr]))))
-
-#     ### Start calculation
-
-#     # Initialisations
-#     buildings_uniqueID = 'unique_ID'
-#     lines_uniqueID = 'unique_ID_lines'
-#     hex_uniqueID = 'unique_ID_hex'
-
-#     buildings['unique_ID'] = np.arange(len(buildings)).astype(int)
-#     lines[lines_uniqueID] = np.arange(len(lines)).astype(int)
-
-#     summed_target_attrs = set(summed_target_attrs + [target_attr])
-    
-#     if hex is not None:
-#         hex[hex_uniqueID] = np.arange(len(hex)).astype(int)
-
-#         buildings = assign_attr_by_max_intersection_area(gp1 = buildings, gp_source=hex, gp1_id = buildings_uniqueID, attr=hex_uniqueID)
-
-    
-#     # Assign unique ID of closest line bject to buildings
-#     buildings = closest_lines_to_polygons(polygons = buildings, lines = lines, maxDistances = maxDistancesArray)
-
-#     # Transfer unique ID of lines to buildings instead of line index
-#     dictIdxIDLines = dict(zip(list(lines.index), list(lines[lines_uniqueID])))
-#     buildings['nearestline'] = buildings['nearestline'].apply(lambda x: dictIdxIDLines[x] if x in dictIdxIDLines.keys() else x)
-    
-#     # Create copies
-#     lines_out = lines.copy()        
-
-#     # Select buildings according to current filter
-#     selected_builds = gp.GeoDataFrame()
-
-#     if rand_sampling:
-#         print(f'\n### A randomized sampling for each poylgon in spatial_distribution is performed to define the buildings which are included in the calculation of the line density and its spatial distribution.\n The target ratio of connection is set to {int(aimAG*100)} %.')
-
-#         # if hex is not None:
-
-#         # Initialisations
-#         hex_out = hex.copy()        
-#         hex_out = pd.merge(hex_out, buildings.groupby(by = hex_uniqueID)[hex_uniqueID].count().rename('nBuildings'), left_on = hex_uniqueID, right_index = True)
-
-#         for n, HEX in hex_out.iterrows():
-
-#             # Initializations
-#             sampleList = list()
-#             res_arr_heat_demand = np.zeros(nSamples)
-
-#             # Detect hex-individual connection ratio
-#             hex_CR = HEX[attr_hex_CR] if (attr_hex_CR is not None and attr_hex_CR in HEX.index) else aimAG
-
-#             # Create filter for buildings which shall be INCLUDED and EXCLUDED from sampling
-#             idxs_include = buildings[(buildings[hex_uniqueID] == HEX[hex_uniqueID])].index
-
-#             if len(idxs_include) == 0:
-#                 continue
-
-#             if len(idxs_include) == 0:
-#                 fraction = 0
-
-#             else:
-#                 fraction = 1 if len(idxs_include) <= nBuildings_min else min(1, max(0, len(idxs_include) * hex_CR  / len(idxs_include)))
-
-
-#             for jj in range(nSamples):
-#                 selection = buildings.loc[idxs_include, :].sample(frac = fraction)            
-
-#                 sampleList.append(selection)
-
-#                 res_arr_heat_demand[jj]             = np.round(np.nansum(selection[target_attr]), 1)
-
-#             # Get randomized selection with median heat demand
-#             # Index of median (no. of sample featuring median heat demand)
-
-#             med                                                    = np.sort(res_arr_heat_demand)[len(res_arr_heat_demand)//2-1]
-#             idxmedian                                              = np.argmin(abs(res_arr_heat_demand - med))
-
-#             # Use selected sample of buildings in network to assign heat demand to single pipe sections
-#             selected_builds = pd.concat((selected_builds, sampleList[idxmedian]))
-
-#     # If rand_sampling == False then all buildings which meet the specified conditions are taken for the calculation of line density
-#     else:
-#         print(
-#             '\n### Line density and its spatial distribution is calculated using every building found in the examined area and with respect to the desired connection ratio. ###')
-
-#         # Initializations
-#         sampleList = list()
-#         res_arr_heat_demand = np.zeros(nSamples)
-
-#         # Create filter for buildings which shall be INCLUDED and EXCLUDED from sampling
-#         idxs_include = buildings.index
-
-#         if len(idxs_include) == 0:
-#             fraction = 0
-
-#         else:
-#             fraction = 1 if len(idxs_include) <= nBuildings_min else min(1, max(0, (len(idxs_include)) * aimAG ) / len(idxs_include))
-
-
-#         for jj in range(nSamples):
-#             selection = buildings.loc[idxs_include, :].sample(frac = fraction)            
-
-#             sampleList.append(selection)
-
-#             res_arr_heat_demand[jj]             = np.round(np.nansum(selection[target_attr]), 1)
-
-#         # Get randomized selection with median heat demand
-#         # Index of median (no. of sample featuring median heat demand)
-
-#         med                                                    = np.sort(res_arr_heat_demand)[len(res_arr_heat_demand)//2-1]
-#         idxmedian                                              = np.argmin(abs(res_arr_heat_demand - med))
-
-#         # Use selected sample of buildings in network to assign heat demand to single pipe sections
-#         selected_builds = pd.concat((selected_builds, sampleList[idxmedian]))
-
-#     ### Transfer results for summed attributes to line sections
-#     buildings['usage_ld_calc'] = False # Initialisation
-#     buildings.loc[selected_builds.index, 'usage_ld_calc'] = True
-
-#     selected_builds_transfer = buildings[buildings['usage_ld_calc'] == True].copy()
-
-#     # Transfer results to line objects
-#     lines_out['nBuilds'] = selected_builds_transfer.groupby('nearestline')[target_attr].count()
-#     lines_out['nBuilds'] = lines_out['nBuilds'].fillna(0)
-
-#     for sa in summed_target_attrs:
-#         # Line density (MWh/m)
-#         lines_out[f'summed_{sa}'] = selected_builds_transfer.groupby('nearestline')[sa].sum()            
-
-#         # Remove nans
-#         lines_out[f'summed_{sa}'] = lines_out[f'summed_{sa}'].fillna(0)
-
-#     lines_out[f'ld_{target_attr}_per_m'] = lines_out[f'summed_{target_attr}']/lines_out.geometry.length
-
-#     # lines_out.to_file(flp / Path(f'results/streetsRaw_lineDensity_calc.gpkg'), driver  ='GPKG')
-#     # buildings.to_file(flp / Path(f'results/buildings_lineDensity_calc.gpkg'), driver = 'GPKG')
-
-
 
 

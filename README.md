@@ -9,7 +9,8 @@ Python library for heating network planning and generation of hydraulic-thermal 
 ## Overview
 
 **GEOppi** supports planning processes for heating networks in an early and advanced stage. As an open-source tool it is designed to be used freely by planers, public services, energy suppliers and academic researchers / students. 
-Three main functionalities ranging from coarse to more granular design phases are implemented which define the possible use cases of the tool:
+Following main functionalities ranging from coarse to more granular design phases are implemented which define the possible use cases of the tool:
+- Summary of (e.g. demand-related) attributes on closest line segments and calculation of line densities. Variation of spatial target connection ratios possible.
 - Determination of suitable network routings in terms of most profitable line attributes (e.g. line densities / linear heat densities)
 - Determination of possible networks expansion based on defined locations and available thermal energy and power budgets of heat supply sites
 - Conversion of geo-referenced data of network routings, heat consumers, heat suppliers and periphery into calculable thermal-hydraulic network models using the [pandapipes](https://github.com/e2nIEE/pandapipes) framework.

@@ -8,6 +8,26 @@ net = ppi.from_pickle(r'Z:\02_Mitarbeiter\Constantin_Voelzel\THESA_THM\98_Konfer
 # %%
 
 len(net.heat_consumer)
+
+
+# %%
+
+import numpy as np
+
+def calc_network_filling_volume(
+        net
+)->float:
+    
+    """
+    Function to quickly calculate the filling volume of all pipes contained in a pandapipes network instance.
+
+    """
+
+    return np.sum((net.pipe['diameter_m'])**2*np.pi/4*(net.pipe['length_km']*1e03))
+
+
+calc_network_filling_volume(net = net)
+
 # %%
 
 net.pipe.loc[net.pipe['connectionType']=='distribution', 'length_km'].sum()

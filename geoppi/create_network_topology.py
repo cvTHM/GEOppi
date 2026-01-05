@@ -202,8 +202,6 @@ def createUniqueJunctions(
     # Split lines at splitting_points if desired
     if (len(splitting_points) > 0) & (splitLines):    
         lines = split_lines(lines, splitting_points.loc[0, 'geometry'])
-    else:
-        lines = lines
 
     # Put all start points' geometries of pipes into an array
     startpoints = [(np.round(Point(pp.coords[0]).x,2), np.round(Point(pp.coords[0]).y,2)) for pp in lines['geometry']]

@@ -460,7 +460,7 @@ def split_lines_at_points(
     Information from line DataFrame are currently dropped and only geometry is preserved!
 
     :param line: shapely.LineString object
-    :param points: shapley.MultiPoint object
+    :param points: shapely.MultiPoint object
     :return: shapely.LineString object of split line object
     """
 
@@ -539,33 +539,39 @@ def split_lines_at_length(
     :return: GeoDataFrame of splitted line objects (and optionally GeoDataFrame of splitting points)
     '''
 
+    import shapely
+
     cs = lines.crs
     
     # Create temporary Multipoint object at which to split lines
     lines['splitter']                   = lines[geom_col].apply(lambda x: create_point_splitter_npoints(x, distance = distance, lmin = min_distance_last_segment))
 
-    
-    if keep_cols:
+    # Initialize output data
+    lines['original_index'] = lines.index
 
-        lines_split                         = lines.head(0).copy()
+    lines_split = lines.head(0).copy()
+    objs = []
 
-        for row, line in lines.iterrows():
+    for row, pip in lines.iterrows():
 
-            # lines_new is of type GeometryCollection
-            geometries                      = [n for n in split_lines_at_points(line[geom_col], line['splitter']).geoms]
-            lines_new                       = pd.concat([pd.DataFrame(line).T] * len(geometries))
-            lines_new[geom_col]             = geometries
+        if not isinstance(pip['splitter'], (shapely.geometry.multipoint.MultiPoint, shapely.geometry.point.Point)):
+            splitpoints = None
+        else:
+            splitpoints = pip['splitter']
 
-            lines_split                     = pd.concat((lines_split, lines_new), ignore_index = True)
+        try:
+            res = split_lines_at_points(pip['geometry'], splitpoints) if splitpoints is not None else pip['geometry']
+        
+        except:
+            print('Stop')
 
+        objs += [n for n in res.geoms]
 
-    else:
-        # Create temporary Multipoint object at which to split lines
-        lines['splitter']                   = lines[geom_col].apply(lambda x: create_point_splitter_npoints(x, distance = distance, lmin = min_distance_last_segment))
+        nr_of_objs = len(res.geoms)
 
-        # Split lines
-        lines_split                         = lines.apply(lambda y: split_lines_at_points(y['geometry'], y['splitter']), axis = 1)
+        lines_split = pd.concat((lines_split, pd.concat([pd.DataFrame(pip).T] * nr_of_objs, ignore_index = True)), ignore_index = True)
 
+    lines_split['geometry'] = objs
     lines_split.set_crs(cs, inplace = True)    
 
     if return_splittingPoints:

@@ -387,64 +387,45 @@ from geoppi.auxFunctions import (nnearest, create_circumferential_points, create
 cs = 'EPSG:25832'
 
 
-# lines = gp.read_file(r'geoppi/examples/data/lineSeparation/lines_separation_raw.gpkg').to_crs(cs)
-# polys = gp.read_file(r'geoppi/examples/data/lineSeparation/buildings.gpkg').to_crs(cs)
 
-lines = gp.read_file(r'geoppi/examples/data/exampleNetwork2/streets.gpkg').to_crs(cs)
-polys = gp.read_file(r'geoppi/examples/data/exampleNetwork2/buildings.gpkg').to_crs(cs)
+lines = gp.read_file(r'geoppi/examples/data/lineSeparation/lines_separation_raw.gpkg').to_crs(cs)
+polys = gp.read_file(r'geoppi/examples/data/lineSeparation/buildings.gpkg').to_crs(cs)
 
 
-# %%
-'''
-
-
-lines_short = gp.read_file(r'geoppi/examples/data/lineSeparation/lines_short.gpkg').to_crs(cs)
-lines_short['ID'] = np.arange(len(lines_short))
-
-fig, ax = plt.subplots(1,2)
-
-for line in list(lines_short.geometry):
-    shapely.plotting.plot_line(line=line, ax=ax[0], add_points=True, color=np.random.rand(3))
-
-# After union
-multiline = unary_union(lines_short.geometry)
-single_parts = list(multiline.geoms)
-
-for line in single_parts:
-    shapely.plotting.plot_line(line=line, ax=ax[1], add_points=True, color=np.random.rand(3))
-
-
-print(f'Anzahl lines_short = {len(lines_short)}')
-# print(f'Anzahl multiline objekte = {len(gp.GeoDataFrame(geometry = multiline))}')
-'''
 
 # %%
 
 lines['ID'] = np.arange(len(lines))
-
 polys['unnID'] = np.arange(len(polys))
-circumferentialPoints = create_circumferential_points(polygons = polys, npoints = 10, lmin = 2)
+
+polys_buff = polys.copy()
+polys_buff['geometry'] = polys_buff['geometry'].buffer(-0.1)
+
+circumferentialPoints = create_circumferential_points(polygons = polys_buff, npoints = 10, lmin = 2)
 circumferentialPoints['unnID'] = polys['unnID'].copy()
 circumferentialPoints = circumferentialPoints.explode(index_parts = True).reset_index(drop = True)
 
-lines_split, splittingPoints = split_lines_at_length(lines = lines, distance = 2.5, min_distance_last_segment= 2, return_splittingPoints = True, keep_original_line_idx = True)
+# lines_split, splittingPoints = split_lines_at_length(lines = lines, distance = 2.5, min_distance_last_segment= 2, return_splittingPoints = True, keep_original_line_idx = True)
 
-splittingPoints = splittingPoints.explode(index_parts = False).reset_index(drop = True)
+allJunctionPoints = lines['geometry'].apply(lambda x: create_point_splitter_npoints(x, distance = 2.5, lmin = 2))
+allJunctionPoints = allJunctionPoints[~(allJunctionPoints.is_empty)].reset_index(drop = True)
+allJunctionPoints = allJunctionPoints.explode(index_parts = False).reset_index(drop = True)
 
 import matplotlib.pyplot as plt
 
 fig, ax = plt.subplots()
-lines_split.plot(ax = ax)
-splittingPoints.plot(ax = ax)
+allJunctionPoints.plot(ax = ax)
 plt.show()
 
 
 
 # %% Find closest points for each polygon
 import pandas as pd
+from shapely import STRtree
+from collections import Counter
 
 # Find closest object to each point (indicating index of closest line segment)
-idxs, distances = closest_objects_to_points(points = circumferentialPoints, geomObjects = splittingPoints, maxDist = np.ones(len(circumferentialPoints))*100)
+idxs, distances = closest_objects_to_points(points = circumferentialPoints, geomObjects = allJunctionPoints, maxDist = np.ones(len(circumferentialPoints))*100)
     
 # Assign nearest street segment to each point at buildings' boundaries
 circumferentialPoints['nearestPoint']                            = idxs
@@ -453,17 +434,73 @@ circumferentialPoints['distanceToPoint']                         = distances
 # Find index of points which feature the shortes distance to adjacent line segment within group of points for each polygon
 idx_ps_min_distances = circumferentialPoints[~circumferentialPoints['nearestPoint'].isnull()].groupby(by='unnID')['distanceToPoint'].idxmin().values
 circumferentialPoints_ed = circumferentialPoints.loc[idx_ps_min_distances]
-circumferentialPoints_ed['nearestPoint_geometry'] = splittingPoints.iloc[circumferentialPoints_ed['nearestPoint'].values].geometry.values
+circumferentialPoints_ed['nearestPoint_geometry'] = allJunctionPoints.iloc[circumferentialPoints_ed['nearestPoint'].values].geometry.values
+
+junctionPoints = circumferentialPoints_ed['nearestPoint_geometry'].copy()
 
 # Create lines between buildings circumferential points and splitting points
-connectionLines = gp.GeoDataFrame(geometry = [extend_line(LineString([p1, p2]), offset = 0.1) for p1, p2 in zip(circumferentialPoints_ed['geometry'], circumferentialPoints_ed['nearestPoint_geometry'])]).set_crs(cs)
+# connectionLines = gp.GeoDataFrame(geometry = [extend_line(LineString([p1, p2]), offset = 0.1) for p1, p2 in zip(circumferentialPoints_ed['geometry'], circumferentialPoints_ed['nearestPoint_geometry'])]).set_crs(cs)
+
+connectionLines = gp.GeoDataFrame(geometry = [extend_line(LineString([p1, p2]), offset = 0.001) for p1, p2 in zip(circumferentialPoints_ed['geometry'], circumferentialPoints_ed['nearestPoint_geometry'])]).set_crs(cs)
 
 # Separate lines at intersections
 allLines_temp = unary_union(pd.concat((lines.geometry, connectionLines.geometry), axis = 0))
-
 allLines = gp.GeoDataFrame(geometry = list(allLines_temp.geoms)).set_crs(cs)
+
+# Filter only these connection lines which feature a single common start- or endpoint and have a short length
+shortConnectionLines = allLines[allLines.length < 0.0011]
+
+# 2. Endpunkte der kurzen Linien extrahieren
+endpoints_short = []
+for line in shortConnectionLines.geometry:
+    coords = np.array(line.coords)
+    endpoints_short.append((Point(coords[0]), Point(coords[-1])))
+
+start_pts_short = pd.Series([pt[0] for pt in endpoints_short], index=shortConnectionLines.index)
+end_pts_short = pd.Series([pt[1] for pt in endpoints_short], index=shortConnectionLines.index)
+
+
+# 3. ALLE Punkte aus gs sammeln (Start, Ende UND Stützpunkte)
+all_points = []
+for line in allLines.geometry:
+    if not line.is_empty:
+        coords = list(line.coords)  # ALLE Koordinaten (inkl. Stützpunkte)
+        all_points.extend([Point(xy) for xy in coords])
+
+# Punkt-Häufigkeiten zählen (für exakte Matches)
+point_counter = Counter(all_points)
+print(f"Insgesamt {len(all_points)} Punkte, {len(point_counter)} unique")
+
+# 4. Funktion: Häufigkeit eines Punktes ermitteln
+def get_point_frequency(pt):
+    return point_counter.get(pt, 0)
+
+# 5. Häufigkeiten für Start- und Endpunkte der kurzen Linien
+start_freqs = np.array([get_point_frequency(pt) for pt in start_pts_short])
+end_freqs = np.array([get_point_frequency(pt) for pt in end_pts_short])
+
+all_points_arr = np.array(all_points)
+start_freqs_2 = [sum(all_points_arr == pt) for pt in start_pts_short]
+end_freqs_2 = [sum(all_points_arr == pt) for pt in end_pts_short]
+
+all_freqs_2 = start_freqs_2 + end_freqs_2
+
+# 6. Filter: ENTWEIDER Start- ODER Endpunkt taucht ≤1 auf
+condition = (start_freqs <= 1) | (end_freqs <= 1)
+
+# Ergebnis
+mask = shortConnectionLines[condition]
+
+result = allLines[~allLines.index.isin(mask.index)]
+
+
+
+# %% Wichtig:
+
 allLines['id'] = np.arange(len(allLines))
-# allLines = gp.GeoDataFrame(geometry = allLines_temp).set_crs(cs)
+
+
+
 
 # %%
 lines_buff = lines.copy()
@@ -477,45 +514,8 @@ allLines_buff = assign_attr_by_max_intersection_area(gp1 = allLines, gp_source =
 allLines_attrs = allLines.copy()
 allLines_attrs['ID'] = allLines_buff['ID']
 
-allLines_attrs.to_file(r'C:\Git\geoppi\geoppi\examples\data\exampleNetwork2\results\lineSeparation\lines_separated_out.shp')
 
-lines_buff.drop(columns = ['splitter']).to_file(r'C:\Git\geoppi\geoppi\examples\data\exampleNetwork2\results\lineSeparation\lines_buff.shp')
+# %%
+allLines_attrs.to_file(r'C:\Git\geoppi\geoppi\examples\data\lineSeparation\lines_separated_out.shp')
+lines_buff.to_file(r'C:\Git\geoppi\geoppi\examples\data\lineSeparation\lines_buff.shp')
 
-# %% Parse through splittingPoints_ed and insert them in closest line object
-
-
-
-# %% Imports
-
-# import momepy
-# import geopandas as gp
-# from pathlib import Path
-
-# from geoppi.suitable_network_routing import (network_span_dfs_level_search)
-
-
-
-# # %% Load data
-
-# flp = Path('C:/GitLab/paper_generic_network_creation/data/lineDensity')
-# flp_out = flp
-
-# # Coordinate system
-# cs = 'EPSG:25832'
-
-# lines               = gp.read_file(flp / Path(r'Streets_LineDensity_bestand_renov_v1.gpkg')).explode(index_parts = False).to_crs(cs)
-# lines['length']     = lines.geometry.length
-# lines['inverse_ld_demand_use_th'] = 1/lines['ld_demand_use_th']
-
-# startpoints         = gp.read_file(flp / Path(r'startpointsProducers.gpkg')).to_crs(cs)
- 
-# consumerConnections = gp.read_file(flp / Path(r'Points_consumerIntersection.gpkg')).to_crs(cs)
-
-# buildings = gp.read_file(flp / Path(r'Buildings_LineDensity_renov_v1.gpkg')).explode(index_parts = False)
-
-# buildings = buildings.to_crs(lines.crs)
-
-
-# # %%
-# # Aufruf
-# connection_lines, lines_sep = create_shortest_connections_optimized_v2(polygons_gdf = buildings, lines_gdf = lines, buffer_dist = 0.1)

@@ -30,6 +30,10 @@ width="100%"/><br>
 ## Features and functionalities
 The implemented functionalities rely on geo-referenced input data of possible network routings and spatially distributed heat demands (heat cadastre data, building models, ...). For heating networks, the network course mainly follows street routings, especially in urban settlements. 
 
+**Creation of line density / linear heat density cadastre**
+Selected attributes from polygon objects can be transferred and summed on the closets line segment to create linear heat cadastre data. Final connection ratios can be specified a priori and may vary locally based on additionally provided geo-referenced layers (e.g. polygons carrying the target connection ratios for different regions).
+A template for this application can be found in [line_density_calculation_template.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/line_density_calculation_template.py).
+
 **Determination of suitable network routing**  
 Suitable network routings within a complete set of all possible network routings (e.g. street system) are found by scanning the given system with a modified depth-first-search (DFS) algorithm. It is applied to the [networkx](https://github.com/networkx/networkx) multigraph representation of the network. The process comes to an end if none of the reachable, i.e. hydraulically connected to the spanned network, branches features line attributes meeting the defined thresholds.
 - Transfer all possible network routings as line objects with assigned line attributes to the function (e.g. street system)
@@ -86,7 +90,7 @@ width="100%"/><br>
 - Load polygon objects of heat supply sites, preferrably with characteristics for type (base load producer or peak load producer) and thermal power
 - (Optional) Load point objects of valves as network periphery
 - (Optional) Provide rasterized data of digital elevation model for geodetic heights at nodes
-- Load line objects of the final network topology (distribution lines and house connection lines)
+- Load line objects of the final network topology
   - Supports completely new heating networks (no attributes on the line objects) and existing heating network topologies (specify attributes which shall be maintained)
   - Only the supply line layer is needed for this step!
   - The automatic creation of house connection lines is part of **GEOppi** for versions >= 0.0.2 (see template in [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkModelling_example.py)). It creates straight house connection lines from each selected building in the masked investigation area to the closest distribution line segment and a robust separation of the distribution line segment at the connection point.

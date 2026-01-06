@@ -30,7 +30,7 @@ width="100%"/><br>
 ## Features and functionalities
 The implemented functionalities rely on geo-referenced input data of possible network routings and spatially distributed heat demands (heat cadastre data, building models, ...). For heating networks, the network course mainly follows street routings, especially in urban settlements. 
 
-**Creation of line density / linear heat density cadastre**
+**Creation of line density / linear heat density cadastre**  
 Selected attributes from polygon objects can be transferred and summed on the closets line segment to create linear heat cadastre data. Final connection ratios can be specified a priori and may vary locally based on additionally provided geo-referenced layers (e.g. polygons carrying the target connection ratios for different regions).
 A template for this application can be found in [line_density_calculation_template.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/line_density_calculation_template.py).
 

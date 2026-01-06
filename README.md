@@ -9,7 +9,8 @@ Python library for heating network planning and generation of hydraulic-thermal 
 ## Overview
 
 **GEOppi** supports planning processes for heating networks in an early and advanced stage. As an open-source tool it is designed to be used freely by planers, public services, energy suppliers and academic researchers / students. 
-Three main functionalities ranging from coarse to more granular design phases are implemented which define the possible use cases of the tool:
+Following main functionalities ranging from coarse to more granular design phases are implemented which define the possible use cases of the tool:
+- Summary of (e.g. demand-related) attributes on closest line segments and calculation of line densities. Variation of spatial target connection ratios is possible.
 - Determination of suitable network routings in terms of most profitable line attributes (e.g. line densities / linear heat densities)
 - Determination of possible networks expansion based on defined locations and available thermal energy and power budgets of heat supply sites
 - Conversion of geo-referenced data of network routings, heat consumers, heat suppliers and periphery into calculable thermal-hydraulic network models using the [pandapipes](https://github.com/e2nIEE/pandapipes) framework.
@@ -20,14 +21,14 @@ Three main functionalities ranging from coarse to more granular design phases ar
     <td align="center" width="100%">
       <img src="https://raw.githubusercontent.com/cvTHM/GEOppi/refs/heads/main/docs/images/fig_GEOppi_functionalities_Overview.png" alt="search spaces" 
 width="100%"/><br>
-      <sub><b>Figure 1:</b> Summary of workflows in the planning process for heating networks which can be supported by GEOppi. Top left: Line density values as attributes of street segments (prerequisite, input data); Top right: Suitable network routings on the basis of two differnt heat demand scenarios; Bottom right: Possible network expansion for two different thermal power budgets of connected heat suppliers; Bottom right: Final network topology with dimensioned pipes and distribution of volumetric flow at a design load point </sub>
+      <sub><b>Figure 1:</b> Summary of workflows in the planning process for heating networks which can be supported by GEOppi. Top left: Line density values as attributes of street segments; Top right: Suitable network routings on the basis of two different heat demand scenarios; Bottom right: Possible network expansion for two different thermal power budgets of connected heat suppliers; Bottom right: Final network topology with dimensioned pipes and distribution of volumetric flow at a design load point </sub>
     </td>
   </tr>
 </table>
 
 
 ## Features and functionalities
-The implemented functionalities rely on input data of possible network routings and spatially distributed heat demands (heat cadastre data). For heating networks, the network course mainly follows street routings, especially in urban settlements. 
+The implemented functionalities rely on geo-referenced input data of possible network routings and spatially distributed heat demands (heat cadastre data, building models, ...). For heating networks, the network course mainly follows street routings, especially in urban settlements. 
 
 **Determination of suitable network routing**  
 Suitable network routings within a complete set of all possible network routings (e.g. street system) are found by scanning the given system with a modified depth-first-search (DFS) algorithm. It is applied to the [networkx](https://github.com/networkx/networkx) multigraph representation of the network. The process comes to an end if none of the reachable, i.e. hydraulically connected to the spanned network, branches features line attributes meeting the defined thresholds.
@@ -76,7 +77,7 @@ An **automatic pipe dimensioning routine** is selectable - pipe data for commerc
     <td align="center" width="100%">
       <img src="https://raw.githubusercontent.com/cvTHM/GEOppi/refs/heads/main/docs/images/fig_GEOppi_exampleNetwork.png" alt="search spaces" 
 width="100%"/><br>
-      <sub><b>Figure 3:</b> Chronological steps of heating network construction from GIS data in GEOppi </sub>
+      <sub><b>Figure 3:</b> Chronological steps of heating network construction from GIS data in **GEOppi** </sub>
     </td>
   </tr>
 </table>
@@ -88,7 +89,8 @@ width="100%"/><br>
 - Load line objects of the final network topology (distribution lines and house connection lines)
   - Supports completely new heating networks (no attributes on the line objects) and existing heating network topologies (specify attributes which shall be maintained)
   - Only the supply line layer is needed for this step!
-  - Note: The automatic creation of house connection lines for entirely new heating networks is not yet part of **GEOppi**. For this reason, a dedicated function for the [QGIS model designer](https://docs.qgis.org/3.40/en/docs/user_manual/processing/modeler.html) is implemented in the [QGIS_ModelDesigner directory](https://github.com/cvTHM/GEOppi/blob/main/geoppi/QGIS_ModelDesigner). It creates straight house connection lines from each selected building in the masked investigation area to the closest distribution line segment and a robust separation of the distribution line segment at the connection point.
+  - The automatic creation of house connection lines is part of **GEOppi** for versions >= 0.0.2 (see template in [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkModelling_example.py)). It creates straight house connection lines from each selected building in the masked investigation area to the closest distribution line segment and a robust separation of the distribution line segment at the connection point.
+  Alternatively, a dedicated function for the [QGIS model designer](https://docs.qgis.org/3.40/en/docs/user_manual/processing/modeler.html) is implemented in the [QGIS_ModelDesigner directory](https://github.com/cvTHM/GEOppi/blob/main/geoppi/QGIS_ModelDesigner) and can be used for such purpose as well.
 - For the case of entirely new heating networks:
   - Specify type of piping (plastic jacket pipes (+ stage of insulation) or simple PE-HD pipes (uninsulated))
   - **Special feature**: For automatic pipe dimensioning routine, specify:

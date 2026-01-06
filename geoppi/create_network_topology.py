@@ -12,7 +12,7 @@ from shapely.ops import (unary_union,)
 from shapely.geometry import (LineString, Point, MultiPoint)
 from collections import Counter
 
-from geoppi.auxFunctions import (extractPointsFromLines, nnearest, split_lines, split_lines_at_points, create_circumferential_points, closest_objects_to_points,             match_polygons_to_points_by_intersection, geodata_from_geometry, extractRasterValsAtPoints, checkConnectivity, create_point_splitter_npoints, extend_line, assign_attr_by_max_intersection_area)
+from geoppi.auxFunctions import (extractPointsFromLines, nnearest, split_lines, split_lines_at_points, create_circumferential_points, closest_objects_to_points,             match_polygons_to_points_by_intersection, geodata_from_geometry, extractRasterValsAtPoints, checkConnectivity, create_point_splitter_npoints, extend_line, assign_attr_by_max_intersection_area, round_coords_2D)
 
 def create_connection_lines(
         lines:gp.GeoDataFrame,
@@ -125,7 +125,7 @@ def create_connection_lines(
     allLines_buff = allLines.copy()
     allLines_buff.geometry = allLines_buff.geometry.buffer(0.05)
 
-    allLines_buff = assign_attr_by_max_intersection_area(gp1 = allLines, gp_source = lines_buff, gp1_id = f'{unique_ID_lines}_2', attr = list(lines_buff.columns))
+    allLines_buff = assign_attr_by_max_intersection_area(gp1 = allLines_buff, gp_source = lines_buff, gp1_id = f'{unique_ID_lines}_2', attr = list(lines_buff.columns.drop('geometry')))
 
     allLines_buff.geometry = allLines.geometry
     allLines_buff.drop(columns = [f'{unique_ID_lines}_2'], inplace = True)
@@ -405,7 +405,8 @@ def create_basic_network_topology(
     ) -> gp.GeoDataFrame:
 
     """
-    Function that takes simple geometric information of line objects in **lines** and converts them into a network topology of lines and junctions.
+    Function that takes simple geometric information of line objects in **lines** and converts them into a network topology of lines and junctions.\n
+    Global precision is limtied to three decimal digits for simplification of junction snapping and line splitting.\n
 
     :param lines: GeoDataFrame of line objects
     :param split_lines: Boolean if lines shall be separated at identified crossings with other lines
@@ -421,6 +422,10 @@ def create_basic_network_topology(
     lines                           = lines.explode(index_parts = False)
     lines.reset_index(drop = True, inplace = True)
     lines = lines.set_crs(cs)
+
+    # Round to 3 decimals to reduce global precision and simplify junction snapping
+    lines.geometry = lines.geometry.apply(lambda x: round_coords_2D(geom = x, ndigits = 3))
+    print(f'\n... Attention! Global precision of line coordinates is limited to 3 decimal digits!')
     
     ### Geometric operations ###
 

@@ -122,6 +122,14 @@ def sum_attributes_on_lines(
     if spatial_distribution is not None:
         spatial_distribution.to_crs(cs, inplace = True)
 
+    if 'nearestline' in polygons.columns:
+        polygons.drop(columns = ['nearestline'], inplace = True)
+        print(f'\n... Attribute nearestline is dropped from polygon DataFrame and overwritten!')
+
+    if 'distance' in polygons.columns:
+        polygons.drop(columns = ['distance'], inplace = True)
+        print(f'\n... Attribute distance is dropped from polygon DataFrame and overwritten!')
+
     # Check for availability of defined attributes
     if target_attr not in polygons.columns:
         print(f'\n### Attribute {target_attr} not found in polygons attributes. Aborting...')

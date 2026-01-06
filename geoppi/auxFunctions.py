@@ -7,7 +7,231 @@ import rasterio as rio
 import networkx as nx
 import libpysal
 import warnings
-from shapely.geometry import Point
+from tqdm import tqdm
+from shapely.geometry import Point, LineString
+from shapely.ops import transform
+
+def assign_attr_by_max_intersection_area(gp1:gp.GeoDataFrame, gp_source:gp.GeoDataFrame, attr:str, gp1_id:str='id'):
+
+    '''
+    Function to assign attr from GeoDataFrame gp_source to input-GeoDataFrame gp1 by maximum intersection area between each object of gp1 and gp_source.
+
+    :param gp1: GeoDataFrame containing objects to which attributes from gp_source shall be matched.\n
+    :param gp_source: GeoDataFrame containing attributes which shall be transferred to objects in gp1 with max. intersection.\n
+    :param attr: str or list of strings denoting the attributes that shall be transferred.\n
+    :param gp1_id: str denoting a unique identifier column name for objects in gp1.\n        
+    '''
+
+    import geopandas as gp
+
+    dictemp = dict(zip(gp1[gp1_id], gp1.index))
+
+    # Cut selection to those attributes which are contained in gp_source
+    if not isinstance(attr, list):
+        if isinstance(attr, str):
+            attr = [attr]
+    
+    attr = [at for at in attr if at in gp_source.columns]
+    
+    # Drop attributes already contained in gp1
+    ex_attr = [at for at in attr if at in gp1.columns]
+    if len(ex_attr) > 0:
+        print(f'\nAttributes {ex_attr} already contained in gp1. Columns are dropped and overwritten.')
+
+    gp1.drop(columns = ex_attr, inplace = True)
+
+    gtemp = gp.overlay(gp1, gp_source[attr + ['geometry']], how='intersection', keep_geom_type = False)
+
+    gtemp['temporary'] = gtemp.length
+
+    if (all(gp1.geom_type.isin(['LineString', 'MultiLineString'])) & all(gp_source.geom_type.isin(['Polygon', 'MultiPolygon']))) | (all(gp_source.geom_type.isin(['LineString', 'MultiLineString'])) & all(gp1.geom_type.isin(['Polygon', 'MultiPolygon']))):        
+        gtemp['temporary'] = gtemp.length
+
+    elif (all(gp1.geom_type.isin(['Polygon', 'MultiPolygon'])) & all(gp_source.geom_type.isin(['Polygon', 'MultiPolygon']))):
+        gtemp['temporary'] = gtemp.area
+
+    idxmax = gtemp.groupby(by=gp1_id)['temporary'].idxmax()
+    ls = gtemp.loc[idxmax.values, [gp1_id] + attr].set_index(gp1_id, drop=True)
+    ls.index = [dictemp[p] for p in ls.index]
+
+    gp1[attr] = ls
+
+    return (gp1)
+
+
+def round_coords_2D(geom, ndigits:int=3):
+    """
+    Function that rounds entire geometries of 2D LineString objects to desired number of decimal digits.\n
+    
+    :param geom: LineString geometry.\n
+    :param ndigits: number of decimals after rounding operation.\n
+    :return: roundeed geometry.\n
+    """
+    def _round(x, y, z=None):
+        if z is None:
+            return (round(x, ndigits), round(y, ndigits))
+        else:
+            return (round(x, ndigits), round(y, ndigits), round(z, ndigits))
+    
+    return transform(_round, geom)
+
+def create_circumferential_points(polygons:gp.GeoDataFrame, npoints:int = 10, lmin:float = 5)->gp.GeoDataFrame:
+
+    """
+    Function creating MultiPoint object with circumferential points around boundary of each polygon object in **polygons**.
+
+    :param polygons: GeoDataFrame of polygon objects.\n
+    :param npoints: integer defining the desired number of points to create per polygon.\n
+    :param lmin: float denoting the minimum distance between points to preserve.\n
+
+    :return: GeoDataFrame containting MultiPoint object for each polygon.
+    """
+
+    # Imports
+    from tqdm import tqdm
+
+    # Create boundary line
+    bounds = polygons[['geometry']].copy()
+    bounds['geometry'] = bounds.geometry.boundary
+   
+    print('\n### Generating circumferential points ... ###\n')
+    bounds['circumferentialPoints'] = bounds.geometry.apply(lambda x: create_point_splitter_npoints(x, npoints = npoints, lmin = lmin))
+
+    points = gp.GeoDataFrame(bounds[['circumferentialPoints']].rename(columns = {'circumferentialPoints':'geometry'}), geometry = 'geometry')
+
+    return points
+
+def create_point_splitter_npoints(line, npoints:int = 8, distance:float = None, lmin:float = 5):
+
+    '''
+    Create MultiPoint layer with points along idx_ps_min_distances given LineString geometry at idx_ps_min_distances predefined number of points (respecting minimum values for single line segments between points).
+
+    :param line: shaely.goemetry line object.\n
+    :param npoints: int denoting the number of points that shall be created along line.\n
+    :param lmin: float denoting the minimum length of line segments between consecutive points along the line.\n
+    
+    :returns: shapely.MultiPoint object for splitting points on the provided line object.
+    '''
+    import numpy as np
+    from shapely.ops import unary_union
+
+    if distance is None:
+        distances = np.round(np.linspace(0, line.length, npoints+1), 1)
+    else:
+        distances = np.round(np.arange(0, line.length, distance), 1)
+    
+    # If last element is shorter than lmin, skip last splitting point
+    if line.length - distances[-1] < lmin:
+        distances = distances[:-1]
+
+
+    points = [line.interpolate(d) for d in distances]
+    result = unary_union(points)
+
+    return(result)
+
+
+def closest_objects_to_points(points:gp.GeoDataFrame, geomObjects:gp.GeoDataFrame, **kwargs)->tuple[np.array, np.array]:
+
+    """
+    Function that returns the index of the closest geometry object to each point in **points**.\n
+    A kwarg can be "maxDist", either as array for each point in **points** or as a constant float/integer applied to all points.\n
+
+    :param points: GeoDataFrame of point objects for which to find closest geometry object in **geomObjects**\n
+    :param geomObjects: GeoDataFrame containting geometry objects of arbitrary type in whcih to look for closest objects.\n
+    :kwargs: if 'maxDist' is contained in kwargs.keys(), the maximum searching distance for the closest geometry object is restricted to this value. Can either be provided point-wise ias an array or as a constant value (float, integer) for all points. If no matching object within the maximum distance is found, np.nan is entered.\n
+
+    :return: Two numpy.arrays with (i) indicating the matching index of the closest object found in **geomObjects** and (ii) the corresponding distances.
+    """
+
+    # Checking kwargs
+    defaultDist = 100
+
+    if 'maxDist' in kwargs.keys():
+        maxDist = kwargs['maxDist']
+
+        if type(maxDist) == float | type(maxDist) == int:
+            maxDist = np.ones(points.shape[0]) * maxDist
+
+    else:
+        maxDist = np.ones(points.shape[0]) * defaultDist
+        print('\n### No array for maximum searching distance is defined. Using default value of {} m. ###'.format(defaultDist))
+
+    # Initialisation of output
+    result = []
+    dists = []
+
+    # Initialise parameters for distance search
+    INFTY = 1000000000000
+
+    print('\n### Generating rtree... ###')
+    idx = geomObjects.sindex
+
+    for ix, r in tqdm(points.iterrows(), total = points.shape[0], desc = 'Snapping in pBox...'):
+
+        p = r.geometry
+
+        MIN_SIZE = maxDist[ix]
+        max_dist = MIN_SIZE
+
+        pbox = (p.x - MIN_SIZE, p.y - MIN_SIZE, p.x + MIN_SIZE, p.y + MIN_SIZE)
+
+        hits = list(idx.intersection(pbox))
+        d = INFTY
+        nid = None
+
+        for h in hits:
+            new_d = p.distance(geomObjects.geometry.loc[h])
+
+            if (d >= new_d) & (new_d < max_dist):
+                d = new_d
+                nid = geomObjects.index[h]
+
+        if nid is None:
+            result.append(np.nan)
+            dists.append(d)
+
+        else:
+            result.append(nid)
+            dists.append(d)
+
+
+    return result, dists
+
+def calc_thermalLoss_pipe(
+        net
+    ):
+
+    """
+    Function that calculates pipe-specific thermal loss power in pandapipes network model.\n
+
+    :param net: pandapipes network model with existing res_pipe DataFrame (available after thermal pipeflow).\n
+    :return: network instance
+    """
+
+    # Initializations
+    if hasattr(net, 'res_pipe'):
+        mdot = net.res_pipe['mdot_from_kg_per_s'].values
+
+        reverseFlow = np.where(mdot < 0)
+        mask = np.ones(mdot.shape[0], dtype=bool)
+        mask[reverseFlow] = False
+
+        tFrom = net.res_pipe['t_from_k'].values
+        tFrom[~mask] = net.res_pipe['t_to_k'].values[~mask]
+
+        tTo = net.res_pipe['t_outlet_k'].values
+
+        cp = net.fluid.get_heat_capacity((tFrom + tTo)/2)
+
+        qloss = abs(mdot) * cp * (tTo - tFrom)
+
+        net.res_pipe['Pthermal_W'] = qloss
+
+    else:
+        pass
+
+    return net
 
 def calc_thermalLoss_pipe(
         net
@@ -258,7 +482,7 @@ def split_lines_at_points(
     Information from line DataFrame are currently dropped and only geometry is preserved!
 
     :param line: shapely.LineString object
-    :param points: shapley.MultiPoint object
+    :param points: shapely.MultiPoint object
     :return: shapely.LineString object of split line object
     """
 
@@ -271,6 +495,37 @@ def split_lines_at_points(
 
     result = split_line_by_point(line, points)
     return(result)
+
+def extend_line(
+        line:LineString, 
+        offset:float
+        )->LineString:
+    
+    """
+    Function that extends a shapely LineString object by a fixed distance *offset* in both directions at either end.\n
+    
+    :param line: shapely LineString object.\n
+    :param offset: float denoting the fixed distance by which to extend line.\n
+    :return: Extended line as shapely LineString object.
+    """
+
+    coords = list(line.coords)
+    # Get the direction vector at the start of the LineString
+    start_vec = np.array(coords[1]) - np.array(coords[0])
+    start_dir = start_vec / np.linalg.norm(start_vec)
+    # Calculate the new start point by moving backwards along the direction
+    new_start = np.array(coords[0]) - offset * start_dir
+
+    # Get the direction vector at the end of the LineString
+    end_vec = np.array(coords[-1]) - np.array(coords[-2])
+    end_dir = end_vec / np.linalg.norm(end_vec)
+    # Calculate the new end point by moving forwards along the direction
+    new_end = np.array(coords[-1]) + offset * end_dir
+
+    # Build a new coordinate list with the extended endpoints
+    new_coords = [tuple(new_start)] + coords[1:-1] + [tuple(new_end)]
+    
+    return LineString(new_coords)
 
 def split_lines(
         lines:gp.GeoDataFrame, # DataFrame of shapely.LineString objects
@@ -312,6 +567,76 @@ def split_lines(
     lines_out.set_crs(lines.crs, inplace = True)
 
     return (lines_out)
+
+
+def split_lines_at_length(
+        lines:gp.GeoDataFrame,
+        distance:float,
+        min_distance_last_segment:float,
+        geom_col:str = 'geometry',
+        keep_cols:bool = True,
+        keep_original_line_idx:bool = False,
+        return_splittingPoints:bool = False
+        ) -> gp.GeoDataFrame:
+    
+    '''
+    Function to split shapely.LineString objects in geopandas GeoDataFrame at given lengths along their path.\n
+
+    :param lines: geopandas.GeoDataFrame with shapely.LineString objects.\n
+    :param distance: float defining the desired equidistant lengths at which lkines shall be split.\n
+    :param min_distance: flaot denoting the minimum distance the last segment of splitted lines shall maintain.\n
+    :param geom_col: str denoting the nemae of the geometry columns. Defaults to "geometry"\n
+    :param keep_cols: Boolean iof all attributes from GeoDataFrame lines shall be kept.\n
+    :param keep_original_line_idx: Boolean if original row index of lines shall be transferred to output splittingPoints.\n
+    :param return_splittingPointS: Bool if GeoDataFrame with MultiPoint objects shall be returned as well.\n
+    :return: GeoDataFrame of splitted line objects (and optionally GeoDataFrame of splitting points)
+    '''
+
+    import shapely
+
+    cs = lines.crs
+    
+    # Create temporary Multipoint object at which to split lines
+    lines['splitter']                   = lines[geom_col].apply(lambda x: create_point_splitter_npoints(x, distance = distance, lmin = min_distance_last_segment))
+
+    # Initialize output data
+    lines['original_index'] = lines.index
+
+    lines_split = lines.head(0).copy()
+    objs = []
+
+    for row, pip in lines.iterrows():
+
+        if not isinstance(pip['splitter'], (shapely.geometry.multipoint.MultiPoint, shapely.geometry.point.Point)):
+            splitpoints = None
+        else:
+            splitpoints = pip['splitter']
+
+        try:
+            res = split_lines_at_points(pip['geometry'], splitpoints) if splitpoints is not None else pip['geometry']
+        
+        except:
+            print('Stop')
+
+        objs += [n for n in res.geoms]
+
+        nr_of_objs = len(res.geoms)
+
+        lines_split = pd.concat((lines_split, pd.concat([pd.DataFrame(pip).T] * nr_of_objs, ignore_index = True)), ignore_index = True)
+
+    lines_split['geometry'] = objs
+    lines_split.set_crs(cs, inplace = True)    
+
+    if return_splittingPoints:
+        splittingPoints = gp.GeoDataFrame(data = {'original_line_idx':lines.index} if keep_original_line_idx else None, geometry = lines['splitter'].to_list())
+        #lines_split['splitter'].copy().rename({'splitter':'geometry'})
+        lines_split.drop(columns = ['splitter'], inplace = True)
+
+        return lines_split, gp.GeoDataFrame(splittingPoints, geometry = 'geometry', crs = lines.crs)
+
+    else:
+        lines_split.drop(columns = ['splitter'], inplace = True)
+        return lines_split
 
 def extractRasterValsAtPoints(
         j:gp.GeoDataFrame, 

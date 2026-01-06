@@ -39,7 +39,8 @@ if not os.path.exists(flp_out):
 fln_out = 'network_' + name
 
 # Load pipes
-pipes = gp.read_file(flp / Path('networkRaw.gpkg')).to_crs(cs)
+pipes = gp.read_file(flp / Path('streetsRaw.gpkg')).to_crs(cs)
+pipes['name'] = np.arange(len(pipes))
 
 # Load Buildings layer
 buildings = gp.read_file(flp / Path('buildings.gpkg')).to_crs(cs)
@@ -108,7 +109,7 @@ dp_spec = 100
 
 # Selection of subset for nominal widths for pipes
 subsetDistribution = [50, 65, 80, 100, 125, 150, 200, 225, 250, 300, 350]
-subsetConnection = [32, 40, 50, 65, 80, 100, 125, 150, 200, 225, 300]
+subsetConnection = [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 225, 300]
 
 # Desired insulation for pipes
 insulationType = 'std'
@@ -133,6 +134,13 @@ np.seterr(divide='ignore')
 
 
 # %% Create pandapipes network for feed line
+
+# Optional, if house connection lines have not yet been created:
+pipes = geoppi.create_connection_lines(
+    lines = pipes,
+    polys = buildings,
+    dist_connection_points = 2
+)
 
 netFeed = geoppi.create_ppi_network_from_gdf(
     pipes = pipes,
@@ -236,22 +244,24 @@ gdf[(gdf['in_service'] ==True) & (gdf[connectionTypeAttr] == 'distribution')].pl
 leg = ax1[0].get_legend()
 leg.set_bbox_to_anchor((1.1,0,0.2,0.5))
 
-ax1[1].set_title('Affiliation with loop', **tfont)
-gdf[(gdf['in_service'] ==True) & (gdf[connectionTypeAttr] == 'distribution')].plot(
-    ax = ax1[1], 
-    column = 'loop', 
-    cmap=plt.get_cmap('Paired'),
-    legend = True,
-    categorical = True,
-    missing_kwds = dict(color = 'grey', label = '-'),
-    legend_kwds = {'title':'Loop no.', 
-                   'loc':'lower right',
-                   'markerscale':1, 
-                    'title_fontsize':'xx-large', 
-                    'fontsize':'xx-large'},
-    **styles)
-leg = ax1[1].get_legend()
-leg.set_bbox_to_anchor((1.1,0,0.2,0.5))
+
+if not all(gdf.loc[(gdf['in_service'] ==True) & (gdf['connectionType'] == 'distribution'), 'loop'].isna()):
+    ax1[1].set_title('Affiliation with loop', **tfont)
+    gdf[(gdf['in_service'] ==True) & (gdf[connectionTypeAttr] == 'distribution')].plot(
+        ax = ax1[1], 
+        column = 'loop', 
+        cmap=plt.get_cmap('Paired'),
+        legend = True,
+        categorical = True,
+        missing_kwds = dict(color = 'grey', label = '-'),
+        legend_kwds = {'title':'Loop no.', 
+                    'loc':'lower right',
+                    'markerscale':1, 
+                        'title_fontsize':'xx-large', 
+                        'fontsize':'xx-large'},
+        **styles)
+    leg = ax1[1].get_legend()
+    leg.set_bbox_to_anchor((1.1,0,0.2,0.5))
 
 ax1[2].set_title('Spec. pressure loss', **tfont)
 gdf[(gdf['in_service'] ==True) & (gdf[connectionTypeAttr] == 'distribution')].plot(
@@ -386,8 +396,10 @@ circ_pump_pressure_idx = 0
 dpmin_target = 1.2 # bar
 pmin_target = 1.5 # bar
 
+ppi.set_user_pf_options(net = netFeedReflux, mode="sequential", friction_model = friction_model, quit_on_inconsistency_connectivity=True, reset = True)
+
 # Create controllers 
-netFeedReflux = implement_controllers(
+netFeedReflux = geoppi.implement_controllers(
     net = netFeedReflux,
     drop_all = True,
     pminCtrlDict = {
@@ -412,7 +424,7 @@ netFeedReflux = implement_controllers(
         'T_target':tReflux + 273.15,
         'min_mdot':0.015,
         'min_dT':3,
-        'abs_tol':1,
+        'abs_tol':0.1,
         'order':0,
         'level':-1
         },

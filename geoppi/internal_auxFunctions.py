@@ -529,6 +529,17 @@ def simultaneity_DH(
     else:
         return max(bottomLim, GZF)
 
+def calc_network_filling_volume(
+        net
+    )->float:
+    
+    """
+    Function to quickly calculate the filling volume of all pipes contained in a pandapipes network instance.
+
+    """
+
+    return np.sum((net.pipe['diameter_m'])**2*np.pi/4*(net.pipe['length_km']*1e03))
+
 # Optional:_ Create plot of simultaneity factor
 if __name__ == '__main__':
 

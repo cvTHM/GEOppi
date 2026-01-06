@@ -7,10 +7,117 @@ import geopandas as gp
 import pandas as pd
 import pandapipes.toolbox as ppitlbx
 import numpy as np
-from shapely import (set_precision,)
+from shapely import (set_precision, STRtree)
+from shapely.ops import (unary_union,)
+from shapely.geometry import (LineString, Point, MultiPoint)
+from collections import Counter
 
-from geoppi.auxFunctions import (extractPointsFromLines, nnearest, split_lines, split_lines_at_points,
-                          match_polygons_to_points_by_intersection, geodata_from_geometry, extractRasterValsAtPoints, checkConnectivity)
+from geoppi.auxFunctions import (extractPointsFromLines, nnearest, split_lines, split_lines_at_points, create_circumferential_points, closest_objects_to_points,             match_polygons_to_points_by_intersection, geodata_from_geometry, extractRasterValsAtPoints, checkConnectivity, create_point_splitter_npoints, extend_line, assign_attr_by_max_intersection_area)
+
+def create_connection_lines(
+        lines:gp.GeoDataFrame,
+        polys:gp.GeoDataFrame,
+        unique_ID_polys:str = 'unID_polys',
+        unique_ID_lines:str = 'unID_lines',
+        dist_connection_points:float = 2.5,
+        max_dist_connection_lines:float = 100
+    )->gp.GeoDataFrame:
+    
+    ## Initializations    
+    cs = lines.crs
+    if cs != polys.crs:
+        polys = polys.copy().to_crs(cs)
+        print(f'\nAttention! Polygons and lines do not share same crs!')
+
+    minOffset_connectionLines = 0.001
+
+    # Create unique IDs
+    lines[unique_ID_lines] = np.arange(len(lines))
+    polys[unique_ID_polys] = np.arange(len(polys))
+
+    ## Creation of connection lines from polygons to closets points on provided lines
+    # Negative buffer of polygons to ensure overlap with newly created connection lines
+    polys_buff = polys.copy()
+    polys_buff['geometry'] = polys_buff['geometry'].buffer(-0.1)
+
+    # Create circumferential points around polygon boundaries
+    circumferentialPoints = create_circumferential_points(polygons = polys_buff, npoints = 10, lmin = 2)
+    circumferentialPoints[unique_ID_polys] = polys[unique_ID_polys].copy()
+    circumferentialPoints = circumferentialPoints.explode(index_parts = True).reset_index(drop = True)
+
+    # Create splitting points on provided lines
+    allJunctionPoints = lines['geometry'].apply(lambda x: create_point_splitter_npoints(x, distance = dist_connection_points, lmin = dist_connection_points*1.5))
+    allJunctionPoints = allJunctionPoints[~(allJunctionPoints.is_empty)].reset_index(drop = True)
+    allJunctionPoints = allJunctionPoints.explode(index_parts = False).reset_index(drop = True)
+
+    # Find closest object to each point (indicating index of closest line segment)
+    idxs, distances = closest_objects_to_points(points = circumferentialPoints, geomObjects = allJunctionPoints, maxDist = np.ones(len(circumferentialPoints))*max_dist_connection_lines)
+        
+    # Assign nearest line segment to each point at polys' boundaries
+    circumferentialPoints['nearestPoint']                            = idxs
+    circumferentialPoints['distanceToPoint']                         = distances
+
+    # Find index of points which feature the shortes distance to adjacent line segment within group of points for each polygon
+    idx_ps_min_distances = circumferentialPoints[~circumferentialPoints['nearestPoint'].isnull()].groupby(by=unique_ID_polys)['distanceToPoint'].idxmin().values
+    circumferentialPoints_ed = circumferentialPoints.loc[idx_ps_min_distances]
+    circumferentialPoints_ed['nearestPoint_geometry'] = allJunctionPoints.iloc[circumferentialPoints_ed['nearestPoint'].values].geometry.values
+
+    # Create valid lines between polys circumferential points and splitting points
+    # Overlap of 0.001m is used to ensure proper splitting at connecting points
+    connectionLines = gp.GeoDataFrame(geometry = [extend_line(LineString([p1, p2]), offset = minOffset_connectionLines) for p1, p2 in zip(circumferentialPoints_ed['geometry'], circumferentialPoints_ed['nearestPoint_geometry'])]).set_crs(cs)
+
+    # Separate lines at intersections
+    allLines_temp = unary_union(pd.concat((lines.geometry, connectionLines.geometry), axis = 0))
+    allLines = gp.GeoDataFrame(geometry = list(allLines_temp.geoms)).set_crs(cs)
+
+    # Filter only those connection lines which feature a single common start- or endpoint and have a short length
+    shortConnectionLines = allLines[allLines.length < minOffset_connectionLines + 0.0001]
+
+    # Extract endpoints of short lines
+    endpoints_short = []
+    for line in shortConnectionLines.geometry:
+        coords = np.array(line.coords)
+        endpoints_short.append((Point(coords[0]), Point(coords[-1])))
+
+    start_pts_short = pd.Series([pt[0] for pt in endpoints_short], index=shortConnectionLines.index)
+    end_pts_short = pd.Series([pt[1] for pt in endpoints_short], index=shortConnectionLines.index)
+
+    # Gather all start- and endpoints and all coordinates of intermediate points in lines
+    all_points = []
+    for line in allLines.geometry:
+        if not line.is_empty:
+            coords = list(line.coords)
+            all_points.extend([Point(xy) for xy in coords])
+
+    # Create Counter object
+    point_counter = Counter(all_points)
+
+    # Frequency of occurrences for all start- and endpoints
+    start_freqs = np.array([point_counter.get(pt, 0) for pt in start_pts_short])
+    end_freqs = np.array([point_counter.get(pt, 0) for pt in end_pts_short])
+
+    # Only short connection lines whose start- or endpoints occur max. 1 times in the entire amount of points in the lines shall be selected
+    condition = (start_freqs <= 1) | (end_freqs <= 1)
+    mask = shortConnectionLines[condition]
+
+    # Negation of the conditions is the sum of all lines excluding the short connection lines. Possibly created lines with zero length are removed
+    allLines = allLines[(~allLines.index.isin(mask.index)) & (allLines.geometry.length >= 1e-04)]
+
+    ## Transfer all attributes from original lines to newly created lines by max. intersection (shapely.unary_union only returns geometries)
+    allLines[f'{unique_ID_lines}_2'] = np.arange(len(allLines))
+
+    lines_buff = lines.copy()
+    lines_buff.geometry = lines_buff.geometry.buffer(0.05)
+
+    allLines_buff = allLines.copy()
+    allLines_buff.geometry = allLines_buff.geometry.buffer(0.05)
+
+    allLines_buff = assign_attr_by_max_intersection_area(gp1 = allLines, gp_source = lines_buff, gp1_id = f'{unique_ID_lines}_2', attr = list(lines_buff.columns))
+
+    allLines_buff.geometry = allLines.geometry
+    allLines_buff.drop(columns = [f'{unique_ID_lines}_2'], inplace = True)
+
+    return allLines_buff
 
 def assign_default_values_ppi(
         gdf:gp.GeoDataFrame, 
@@ -236,8 +343,8 @@ def assignJunctionsToLines(
     # Put all junctions into an array
     all_junctions = np.array([(j.x, j.y) for j in junctions['geometry']])
 
-    startpoints = [(np.round(Point(pp.coords[0]).x,2), np.round(Point(pp.coords[0]).y,2)) for pp in lines['geometry']]
-    endpoints = [(np.round(Point(pp.coords[-1]).x,2), np.round(Point(pp.coords[-1]).y,2)) for pp in lines['geometry']]
+    startpoints = [(np.round(Point(pp.coords[0]).x,4), np.round(Point(pp.coords[0]).y,4)) for pp in lines['geometry']]
+    endpoints = [(np.round(Point(pp.coords[-1]).x,4), np.round(Point(pp.coords[-1]).y,4)) for pp in lines['geometry']]
 
     # Find closest junctions to start- and endpoints of lines within a distance of 0.02m
     from_junction_idxs, _ = nnearest(startpoints, all_junctions, distance = 0.02, n=1)
@@ -297,7 +404,7 @@ def create_basic_network_topology(
     ### Data preparation ###
 
     # Remove empty geometries in lines
-    lines                           = lines[(~lines['geometry'].isnull()) & (lines.length > 0.01)]
+    lines                           = lines[(~lines['geometry'].isnull())]
     lines                           = lines.explode(index_parts = False)
     lines.reset_index(drop = True, inplace = True)
     lines = lines.set_crs(cs)

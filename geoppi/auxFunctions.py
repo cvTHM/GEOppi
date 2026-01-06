@@ -8,16 +8,17 @@ import networkx as nx
 import libpysal
 import warnings
 from tqdm import tqdm
-from shapely.geometry import Point
+from shapely.geometry import Point, LineString
+from shapely.ops import transform
 
-def assign_attr_by_max_intersection_area(gp1, gp_source, attr, gp1_id='id'):
+def assign_attr_by_max_intersection_area(gp1:gp.GeoDataFrame, gp_source:gp.GeoDataFrame, attr:str, gp1_id:str='id'):
 
     '''
     Function to assign attr from GeoDataFrame gp_source to input-GeoDataFrame gp1 by maximum intersection area between each object of gp1 and gp_source.
 
     :param gp1: GeoDataFrame containing objects to which attributes from gp_source shall be matched.\n
     :param gp_source: GeoDataFrame containing attributes which shall be transferred to objects in gp1 with max. intersection.\n
-    :param attr: str denoting the attribute that shall be transferred.\n
+    :param attr: str or list of strings denoting the attributes that shall be transferred.\n
     :param gp1_id: str denoting a unique identifier column name for objects in gp1.\n        
     '''
 
@@ -25,33 +26,54 @@ def assign_attr_by_max_intersection_area(gp1, gp_source, attr, gp1_id='id'):
 
     dictemp = dict(zip(gp1[gp1_id], gp1.index))
 
+    # Cut selection to those attributes which are contained in gp_source
+    if not isinstance(attr, list):
+        if isinstance(attr, str):
+            attr = [attr]
+    
+    attr = [at for at in attr if at in gp_source.columns]
+    
+    # Drop attributes already contained in gp1
+    ex_attr = [at for at in attr if at in gp1.columns]
+    if len(ex_attr) > 0:
+        print(f'\nAttributes {ex_attr} already contained in gp1. Columns are dropped and overwritten.')
 
-    if attr not in list(gp_source.columns):
-        print('\nChosen attribute is not contained in gp_source columns! Operation cannot be performed. Aborting...')
+    gp1.drop(columns = ex_attr, inplace = True)
 
+    gtemp = gp.overlay(gp1, gp_source[attr + ['geometry']], how='intersection', keep_geom_type = False)
 
-    else:
-        if attr in gp1.columns:
-            gp1.drop(columns = attr, inplace = True)
-            print('\nAttribute ' + attr + ' already contained in gp1. Column is dropped and overwritten.')
+    gtemp['temporary'] = gtemp.length
 
-        gtemp = gp.overlay(gp1, gp_source[[attr, 'geometry']], how='intersection', keep_geom_type = False)
-
+    if (all(gp1.geom_type.isin(['LineString', 'MultiLineString'])) & all(gp_source.geom_type.isin(['Polygon', 'MultiPolygon']))) | (all(gp_source.geom_type.isin(['LineString', 'MultiLineString'])) & all(gp1.geom_type.isin(['Polygon', 'MultiPolygon']))):        
         gtemp['temporary'] = gtemp.length
 
-        if (all(gp1.geom_type.isin(['LineString', 'MultiLineString'])) & all(gp_source.geom_type.isin(['Polygon', 'MultiPolygon']))) | (all(gp_source.geom_type.isin(['LineString', 'MultiLineString'])) & all(gp1.geom_type.isin(['Polygon', 'MultiPolygon']))):        
-            gtemp['temporary'] = gtemp.length
+    elif (all(gp1.geom_type.isin(['Polygon', 'MultiPolygon'])) & all(gp_source.geom_type.isin(['Polygon', 'MultiPolygon']))):
+        gtemp['temporary'] = gtemp.area
 
-        elif (all(gp1.geom_type.isin(['Polygon', 'MultiPolygon'])) & all(gp_source.geom_type.isin(['Polygon', 'MultiPolygon']))):
-            gtemp['temporary'] = gtemp.area
+    idxmax = gtemp.groupby(by=gp1_id)['temporary'].idxmax()
+    ls = gtemp.loc[idxmax.values, [gp1_id] + attr].set_index(gp1_id, drop=True)
+    ls.index = [dictemp[p] for p in ls.index]
 
-        idxmax = gtemp.groupby(by=gp1_id)['temporary'].idxmax()
-        ls = gtemp.loc[idxmax.values, [gp1_id, attr]].set_index(gp1_id, drop=True)
-        ls.index = [dictemp[p] for p in ls.index]
-
-        gp1[attr] = ls
+    gp1[attr] = ls
 
     return (gp1)
+
+
+def round_coords_2D(geom, ndigits:int=3):
+    """
+    Function that rounds entire geometries of 2D LineString objects to desired number of decimal digits.\n
+    
+    :param geom: LineString geometry.\n
+    :param ndigits: number of decimals after rounding operation.\n
+    :return: roundeed geometry.\n
+    """
+    def _round(x, y, z=None):
+        if z is None:
+            return (round(x, ndigits), round(y, ndigits))
+        else:
+            return (round(x, ndigits), round(y, ndigits), round(z, ndigits))
+    
+    return transform(_round, geom)
 
 def create_circumferential_points(polygons:gp.GeoDataFrame, npoints:int = 10, lmin:float = 5)->gp.GeoDataFrame:
 
@@ -473,6 +495,37 @@ def split_lines_at_points(
 
     result = split_line_by_point(line, points)
     return(result)
+
+def extend_line(
+        line:LineString, 
+        offset:float
+        )->LineString:
+    
+    """
+    Function that extends a shapely LineString object by a fixed distance *offset* in both directions at either end.\n
+    
+    :param line: shapely LineString object.\n
+    :param offset: float denoting the fixed distance by which to extend line.\n
+    :return: Extended line as shapely LineString object.
+    """
+
+    coords = list(line.coords)
+    # Get the direction vector at the start of the LineString
+    start_vec = np.array(coords[1]) - np.array(coords[0])
+    start_dir = start_vec / np.linalg.norm(start_vec)
+    # Calculate the new start point by moving backwards along the direction
+    new_start = np.array(coords[0]) - offset * start_dir
+
+    # Get the direction vector at the end of the LineString
+    end_vec = np.array(coords[-1]) - np.array(coords[-2])
+    end_dir = end_vec / np.linalg.norm(end_vec)
+    # Calculate the new end point by moving forwards along the direction
+    new_end = np.array(coords[-1]) + offset * end_dir
+
+    # Build a new coordinate list with the extended endpoints
+    new_coords = [tuple(new_start)] + coords[1:-1] + [tuple(new_end)]
+    
+    return LineString(new_coords)
 
 def split_lines(
         lines:gp.GeoDataFrame, # DataFrame of shapely.LineString objects

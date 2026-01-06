@@ -4,7 +4,7 @@ import pandas as pd
 import geopandas as gp
 import numpy as np
 
-from geoppi.auxFunctions import (create_circumferential_points, create_point_splitter_npoints, closest_objects_to_points, assign_attr_by_max_intersection_area, )
+from geoppi.auxFunctions import (create_circumferential_points, closest_objects_to_points, assign_attr_by_max_intersection_area, )
 
 def closest_lines_to_polygons(
         polygons:gp.GeoDataFrame,

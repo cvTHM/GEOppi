@@ -50,6 +50,7 @@ def calc_distance_from_heat_demand(
 
 # %%
 
+
 ### Start calculation
 
 lines_out, polys_out = geoppi.sum_attributes_on_lines(

@@ -39,13 +39,13 @@ if not os.path.exists(flp_out):
 fln_out = 'network_' + name
 
 # Load pipes
-pipes = gp.read_file(flp / Path('networkRaw.gpkg')).to_crs(cs)
+pipes = gp.read_file(flp / Path('streets.gpkg')).to_crs(cs)
 
 # Load Buildings layer
 buildings = gp.read_file(flp / Path('buildings.gpkg')).to_crs(cs)
 
 # Load valve Layer
-valves = gp.read_file(flp / ('valves.gpkg')).to_crs(cs)
+# valves = gp.read_file(flp / ('valves.gpkg')).to_crs(cs)
 
 # Load production site layer
 producers = gp.read_file(flp / Path('producers2.gpkg')).to_crs(cs)
@@ -108,7 +108,7 @@ dp_spec = 100
 
 # Selection of subset for nominal widths for pipes
 subsetDistribution = [50, 65, 80, 100, 125, 150, 200, 225, 250, 300, 350]
-subsetConnection = [32, 40, 50, 65, 80, 100, 125, 150, 200, 225, 300]
+subsetConnection = [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 225, 300]
 
 # Desired insulation for pipes
 insulationType = 'std'
@@ -134,10 +134,17 @@ np.seterr(divide='ignore')
 
 # %% Create pandapipes network for feed line
 
+# Optional, if house connection lines have not yet been created:
+pipes = geoppi.create_connection_lines(
+    lines = pipes,
+    polys = buildings,
+    dist_connection_points = 2
+)
+
 netFeed = geoppi.create_ppi_network_from_gdf(
     pipes = pipes,
     buildings = buildings,
-    valves = valves,
+    valves = None,#valves,
     producers = producers,
     rasterHeight = dgm,
     buildings_uniqueID = 'build_ID',

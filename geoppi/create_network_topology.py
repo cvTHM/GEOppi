@@ -22,6 +22,19 @@ def create_connection_lines(
         dist_connection_points:float = 2.5,
         max_dist_connection_lines:float = 100
     )->gp.GeoDataFrame:
+
+    """
+    Function to automatically create connection lines from polygons to lines.\n
+    Connection lines are crated along straight paths (shotrest distance) from polygons boundaries to outer lines provided as GeoDataFrame. An overlap of the start/end point of connection lines and the polygons is ensured. Lines are split at crossing junctions after creating the connection lines.\n
+
+    :param lines: GeoDataFrame of line objects.\n
+    :param polys: GeoDataFrame of polygon objects.\n
+    :param unique_ID_polys: str denoting the desired attribute name for temporary unique ID of polygons.\n
+    :param unique_ID_lines: str denoting temporary unique ID for line objects.\n
+    :param dist_connection_points: float denoting the desired distance between possbiel connection points along the line objects. Shorter distances increase the computation time.\n
+    :param max_dist_connection_lines: float denoting the maximum distance from polygons to the lines to consider when creating connection lines.\n
+    :return: GeoDataFrame of all line objects (original (split at crossing junctions) + connection lines).
+    """
     
     ## Initializations    
     cs = lines.crs

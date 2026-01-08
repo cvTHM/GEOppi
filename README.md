@@ -136,10 +136,10 @@ This command installs **GEOppi** and its main dependencies.
 Please note that problems may still occur when trying to install [GeoPandas](https://github.com/geopandas/geopandas) or [Rasterio](https://github.com/rasterio/rasterio) via pip. You can manually install them if the installation fails during the process for **GEOppi**.
 
 ## Quick start
-Please refer to the template scripts [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkExtension_example.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkModelling_example.py) for a quick start.
+Please refer to the template scripts [line_density_calculation_template.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/line_density_calculation_template.py), [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkExtension_example.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkModelling_example.py) for a quick start.
 
 ## Documentation
-A central documentation has not been started yet. Exemplary applications of the functionalities for determination of possible network expansions and the conversion of geo-referenced data into a calculable network model are given in the files [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkExtension_template.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkModelling_template.py).
+A central documentation has not been started yet. An example of linear heat density cadastre is shwon in [line_density_calculation_template.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/line_density_calculation_template.py). Exemplary applications of the functionalities for determination of possible network expansions and the conversion of geo-referenced data into a calculable network model are given in the files [networkExtension_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkExtension_template.py) and [networkModelling_example.py](https://github.com/cvTHM/GEOppi/blob/main/geoppi/examples/networkModelling_template.py).
 
 ## Contributing
 All contributions to the tool **GEOppi** are warmly welcomed. Refer to the [contribution guidelines](https://github.com/cvTHM/GEOppi/blob/main/CONTRIBUTION_guidelines.md) for more information.

@@ -48,6 +48,7 @@ def calc_distance_from_heat_demand(
     return(min(maxLimit, max(minLimit, heat_demand/min_line_density)) )
 
 
+
 # %%
 
 ### Start calculation

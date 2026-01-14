@@ -64,6 +64,7 @@ dgm = rasterio.open(flp / Path('dgm.tif'))
 
 print('######### Load data DONE #########')
 
+
 # %%
 
 # *--- Parameters for network creation ---*

@@ -316,10 +316,11 @@ def extractPointsFromLines(
 def detect_lines_in_narrow_passages(
     lines:gp.GeoDataFrame,
     polygons:gp.GeoDataFrame,
+    merge_touching_polygons:bool = False,
     threshDistance:float = 10,
     distPointsCircumference:float = 1,
     nNeighbours:int = 10,
-    col:str = 'narrowPassage' 
+    col:str = 'narrowPassage_m' 
     )->gp.GeoDataFrame:
 
     """
@@ -327,10 +328,11 @@ def detect_lines_in_narrow_passages(
 
     :param lines: geopandas.GeoDataFrame with line objects (e.g. streets, ...).\n
     :param polygons: geopandas.GeoDataFrame with polygon objects (e.g. buildings, ...).\n
+    :param merge_touching_polygons: Boolean selection if touching polygons shall be merged before creation of closest connecting lines between different polygons within threshDistance.\n
     :param threshDistance: float denoting the defined minimum distance between polygon outer boundaries between which lines are marked.\n
     :param distPointsCircumference: float denoting the distance of points that are created along the boundaries of polygons (!Affects quality of the result!).\n
     :param nNeighbours: integer denoting the number of neighbouring points to search within the defined thresh distance (!Affects quality of the result!).\n
-    :param col: string denoting the column name in which either False (line not within minimum diastance in passage) or True is entered for original line objects.\n
+    :param col: string denoting the column name in which the distance within the narrowest passage is entered for original line objects.\n
 
     :return: geopandas.GeoDataFrame of line objects with additional column *col*
     """
@@ -381,9 +383,10 @@ def detect_lines_in_narrow_passages(
            
     ## Data preparation
     # Merge all touching/overlapping polygons to reduce number of processed polygons
-    print(f'\n... Merging touching/overlapping polygons\n')
-    polygons = qweights_wrapper(polygons, col = 'qWeight')
-    polygons = polygons.dissolve(by = 'qWeight', aggfunc = 'first')
+    if merge_touching_polygons:
+        print(f'\n... Merging touching/overlapping polygons\n')
+        polygons = qweights_wrapper(polygons, col = 'qWeight')
+        polygons = polygons.dissolve(by = 'qWeight', aggfunc = 'first')
 
     # Create circumferenital points along boundary of polygons
     all_points = [create_points_along_boundary(poly, dist = distPointsCircumference) for poly in polygons.geometry]
@@ -419,16 +422,19 @@ def detect_lines_in_narrow_passages(
     shortestLineObjects['geometry'] = shortestLineObjects.normalize()
     shortestLineObjects.drop_duplicates()
 
+    shortestLineObjects['length_m'] = shortestLineObjects.geometry.length
+
     # Transfer results to output DF of lines
     lines = lines.copy()
-    lines = lines.sjoin(shortestLineObjects, how = 'left', predicate = 'intersects')
-    idxs = lines[~lines['index_right'].isna()].drop_duplicates(subset = 'geometry').index
 
-    lines[col] = False
-    lines.loc[idxs, col] = True
+    joined = gp.sjoin(lines, shortestLineObjects[['geometry', 'length_m']], how = 'left', predicate = 'intersects')
+    joined['index_left'] = joined.index
+    joined.reset_index(drop = True, inplace = True)
+    idxs_min = joined.groupby('index_left')['length_m'].idxmin().dropna()
+    lines.loc[idxs_min.index, col] = joined.loc[idxs_min.values, 'length_m'].values
+    shortestLines = shortestLineObjects.loc[joined.loc[idxs_min.values, 'index_right'].values]
 
-
-    return lines
+    return lines, shortestLines
 
 
 def sort_with_permutation(lst:list, key, **kwargs):

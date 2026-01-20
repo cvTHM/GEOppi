@@ -126,6 +126,13 @@ def sum_attributes_on_lines(
     if target_attr not in polygons.columns:
         print(f'\n### Attribute {target_attr} not found in polygons attributes. Aborting...')
         return
+    
+    if 'nearestline' in polygons.columns:
+        nearestLineAttr = 'nearestline_1'
+        print(rf'\n... Attention! Matching of closest line to polygons is done with attribute {nearestLineAttr}')
+        
+    else:
+        nearestLineAttr = 'nearestline'
        
     summed_target_attrs = set([col for col in additional_attr if (col in polygons.columns) and (additional_attr is not None)] + [target_attr])
 
@@ -158,7 +165,7 @@ def sum_attributes_on_lines(
 
     # Transfer unique ID of lines to polygons instead of line index
     dictIdxIDLines = dict(zip(list(lines.index), list(lines[lines_uniqueID])))
-    polygons['nearestline'] = polygons['nearestline'].apply(lambda x: dictIdxIDLines[x] if x in dictIdxIDLines.keys() else x)
+    polygons[nearestLineAttr] = polygons[nearestLineAttr].apply(lambda x: dictIdxIDLines[x] if x in dictIdxIDLines.keys() else x)
     
     # Create copies
     lines_out = lines.copy()        
@@ -285,12 +292,12 @@ def sum_attributes_on_lines(
     selected_polygons_transfer = polygons[polygons['usage_ld_calc'] == True].copy()
 
     # Transfer results to line objects
-    lines_out['nPolygons'] = selected_polygons_transfer.groupby('nearestline')[target_attr].count()
+    lines_out['nPolygons'] = selected_polygons_transfer.groupby(nearestLineAttr)[target_attr].count()
     lines_out['nPolygons'] = lines_out['nPolygons'].fillna(0)
 
     for sa in summed_target_attrs:
         # Line density (MWh/m)
-        lines_out[f'summed_{sa}'] = selected_polygons_transfer.groupby('nearestline')[sa].sum()            
+        lines_out[f'summed_{sa}'] = selected_polygons_transfer.groupby(nearestLineAttr)[sa].sum()            
 
         # Remove nans
         lines_out[f'summed_{sa}'] = lines_out[f'summed_{sa}'].fillna(0)

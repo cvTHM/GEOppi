@@ -58,6 +58,133 @@ def assign_attr_by_max_intersection_area(gp1:gp.GeoDataFrame, gp_source:gp.GeoDa
 
     return (gp1)
 
+def assign_attr_by_max_intersection_area_agg(
+    gp1:gp.GeoDataFrame,
+    gp_source:gp.GeoDataFrame,
+    attr:str,
+    gp1_id:str='id',
+    gp_source_id:str | None = None,
+    min_share:float=0.5,
+    agg_func : str = "sum"
+)->gp.GeoDataFrame:
+    
+    """
+    Function to assign and aggregate *attr* from GeoDataFrame gp_source to input-GeoDataFrame gp1 by min. relative intersection area of X % between each object of gp1 and gp_source.
+
+    :param gp1: GeoDataFrame containing objects to which attributes from gp_source shall be matched.\n
+    :param gp_source: GeoDataFrame containing attributes which shall be transferred to objects in gp1 with max. intersection.\n
+    :param attr: str or list of strings denoting the attributes that shall be transferred.\n
+    :param gp1_id: str denoting a unique identifier column name for objects in gp1. If not provided, it is created with "id" as default.\n  
+    :param gp_source_id: str denoting a unique identifier column name for objects in gp1. If not provided, it is created with "__source_id__" as default.\n   
+    :param min_share: flaot denoting the minimum share of intersection area between metching polygons from gp_source to polygon in gp1 to transfer and aggregate *attr* on gp1.\n
+    :param agg_func: str denoting the desired aggregation function (either 'sum' or 'mean').\n
+    """
+
+    if agg_func not in ("sum", "mean"):
+        raise ValueError(f"\n... argument agg_func must be either 'sum' or 'mean'.")
+
+    # --- Validate gp1_id ---
+    if gp1_id not in gp1.columns:
+        gp1[gp1_id] = np.arange(len(gp1))
+        gp1[gp1_id] = gp1[gp1_id].astype(int)
+
+    # --- Validate / create gp_source_id ---
+    if gp_source_id is not None:
+        if gp_source_id not in gp_source.columns:
+            gp_source[gp_source_id] = np.arange(len(gp_source))
+            gp_source[gp_source_id] = gp_source[gp_source_id].astype(int)
+    else:
+        gp_source = gp_source.copy()
+        gp_source_id = "__source_id__"
+        gp_source[gp_source_id] = np.arange(len(gp_source))
+
+    # --- Ensure attr is a list and exists in gp_source ---
+    if isinstance(attr, str):
+        attr = [attr]
+    attr = [a for a in attr if a in gp_source.columns]
+
+    if not attr:
+        raise ValueError("No valid attributes found in gp_source")
+
+    # --- Remove existing attributes in gp1 ---
+    ex_attr = [a for a in attr if a in gp1.columns]
+    if ex_attr:
+        print(f'Attributes {ex_attr} already in gp1 → overwritten')
+        gp1 = gp1.drop(columns=ex_attr)
+
+    # --- Precompute source areas (important for performance!) ---
+    source_areas = gp_source.geometry.area
+
+    # --- Build spatial index for gp1 ---
+    sindex = gp1.sindex
+
+    matches = []
+
+    # --- Loop over gp_source geometries ---
+    for idx, geom in zip(gp_source.index, gp_source.geometry):
+
+        # Step 1: bounding box preselection
+        possible_idx = list(sindex.intersection(geom.bounds))
+        if not possible_idx:
+            continue
+
+        candidates = gp1.iloc[possible_idx]
+
+        # Step 2: compute intersections
+        inter = candidates.geometry.intersection(geom)
+
+        # Remove empty intersections
+        mask = ~inter.is_empty
+        if not mask.any():
+            continue
+
+        inter = inter[mask]
+        candidates = candidates.loc[mask]
+
+        # Step 3: compute intersection areas
+        areas = inter.area
+
+        # --- NEW: filter by minimum share of source polygon ---
+        share = areas / source_areas.loc[idx]
+
+        valid_mask = share >= min_share
+        if not valid_mask.any():
+            continue
+
+        areas = areas[valid_mask]
+        candidates = candidates.loc[valid_mask]
+
+        # Step 4: select gp1 polygon with maximum intersection
+        max_idx = areas.idxmax()
+        gp1_match_id = candidates.loc[max_idx, gp1_id]
+
+        # Step 5: store mapping + attributes from gp_source
+        row = {gp1_id: gp1_match_id}
+        for a in attr:
+            row[a] = gp_source.loc[idx, a]
+
+        matches.append(row)
+
+    # --- Convert matches to DataFrame ---
+    df_matches = pd.DataFrame(matches)
+
+    if df_matches.empty:
+        print("No intersections found after applying share threshold.")
+        return gp1
+
+    # --- Aggregate attributes by gp1 polygon ---
+    if agg_func == "sum":
+        df_agg = df_matches.groupby(gp1_id)[attr].sum()
+    elif agg_func == "mean":
+        df_agg = df_matches.groupby(gp1_id)[attr].mean()
+
+    # --- Assign aggregated values back to gp1 ---
+    gp1 = gp1.set_index(gp1_id)
+    gp1[attr] = df_agg
+    gp1 = gp1.reset_index()
+
+    return gp1
+
 
 def round_coords_2D(geom, ndigits:int=3):
     """

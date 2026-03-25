@@ -59,9 +59,9 @@ def assign_attr_by_max_intersection_area(gp1:gp.GeoDataFrame, gp_source:gp.GeoDa
     return (gp1)
 
 def assign_attr_by_max_intersection_area_agg(
-    gp1:gp.GeoDataFrame,
+    gp1:gp.GeoDataFrame, # Polygons
     gp_source:gp.GeoDataFrame,
-    attr:str,
+    attr:str | list,
     gp1_id:str='id',
     gp_source_id:str | None = None,
     min_share:float=0.5,
@@ -80,8 +80,12 @@ def assign_attr_by_max_intersection_area_agg(
     :param agg_func: str denoting the desired aggregation function (either 'sum' or 'mean').\n
     """
 
+    # Plausbibility checks
     if agg_func not in ("sum", "mean"):
         raise ValueError(f"\n... argument agg_func must be either 'sum' or 'mean'.")
+    
+    if not all(gp1.geom_type.isin(['Polygon', 'MultiPolygon'])):
+        raise ValueError(f"\n... All objects from gp1 must be of type Polygon or MultiPolygon.")
 
     # --- Validate gp1_id ---
     if gp1_id not in gp1.columns:
@@ -112,8 +116,13 @@ def assign_attr_by_max_intersection_area_agg(
         print(f'Attributes {ex_attr} already in gp1 → overwritten')
         gp1 = gp1.drop(columns=ex_attr)
 
-    # --- Precompute source areas (important for performance!) ---
-    source_areas = gp_source.geometry.area
+    # --- Precompute source areas (important for performance!) ---        
+    if all(gp_source.geom_type.isin(['LineString', 'MultiLineString'])):  
+        source_areas = gp_source.geometry.length
+        all_sources_lines = True
+    elif all(gp_source.geom_type.isin(['Polygon', 'MultiPolygon'])):
+        source_areas = gp_source.geometry.area
+        all_sources_lines = False
 
     # --- Build spatial index for gp1 ---
     sindex = gp1.sindex
@@ -121,7 +130,8 @@ def assign_attr_by_max_intersection_area_agg(
     matches = []
 
     # --- Loop over gp_source geometries ---
-    for idx, geom in zip(gp_source.index, gp_source.geometry):
+    print(f"\n... Processing objects from source GeoDataFrame")
+    for idx, geom in tqdm(zip(gp_source.index, gp_source.geometry), total = len(gp_source.index)):
 
         # Step 1: bounding box preselection
         possible_idx = list(sindex.intersection(geom.bounds))
@@ -142,7 +152,7 @@ def assign_attr_by_max_intersection_area_agg(
         candidates = candidates.loc[mask]
 
         # Step 3: compute intersection areas
-        areas = inter.area
+        areas = inter.area if not all_sources_lines else inter.length
 
         # --- NEW: filter by minimum share of source polygon ---
         share = areas / source_areas.loc[idx]
@@ -185,6 +195,62 @@ def assign_attr_by_max_intersection_area_agg(
 
     return gp1
 
+def calc_intersection_area(
+    gp_source:gp.GeoDataFrame,
+    gp1:gp.GeoDataFrame,
+    new_col: str = "intersection_area"
+):
+    
+    """
+    Fucntion that takes two GeoDataFrames *gp1* and *gp_source* and calculates the sum of intersection areas between overlaping elements of these GeoDataFrames.\n
+
+    :param gp_source: GeoDataFrame of Polygon OR Line objects shall be checked for intersections with *gp1*.\n
+    :param gp1: GeoDataFrame in which tio transfer intersection areas of each element with elemnets from *gp_source.\n
+    :param new_col: str denoting the target attribute name in gp1 where to store values of intersection areas.\n
+
+    :return: GeoDatFrame
+    """
+
+    if all([k in (['LineString', 'MultiLineString']) for k in gp_source.geom_type]):  
+        all_sources_lines = True
+    else:
+        all_sources_lines = False
+
+    # Build spatial index on SOURCE (more efficient this way)
+    sindex = gp_source.sindex
+
+    # Prepare result array
+    result = np.zeros(len(gp1))
+
+    print("\n... Processing gp1 geometries")
+
+    for i, (_, geom) in enumerate(tqdm(zip(gp1.index, gp1.geometry), total=len(gp1))):
+
+        # Get candidate geometries from gp_source using bounding box
+        possible_idx = list(sindex.intersection(geom.bounds))
+        if not possible_idx:
+            continue
+
+        candidates = gp_source.iloc[possible_idx]
+
+        # Compute actual intersections
+        inter = candidates.geometry.intersection(geom)
+
+        # Remove empty geometries
+        inter = inter[~inter.is_empty]
+        if len(inter) == 0:
+            continue
+
+        # Sum up intersection areas
+        if all_sources_lines:
+            result[i] = inter.length.sum()
+        else:
+            result[i] = inter.area.sum()
+
+    # Attach result as new column
+    gp1[new_col] = result
+
+    return gp1
 
 def round_coords_2D(geom, ndigits:int=3):
     """

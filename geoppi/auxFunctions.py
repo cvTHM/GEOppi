@@ -24,39 +24,86 @@ def assign_attr_by_max_intersection_area(gp1:gp.GeoDataFrame, gp_source:gp.GeoDa
 
     import geopandas as gp
 
+    # Mapping from ID to index in gp1
     dictemp = dict(zip(gp1[gp1_id], gp1.index))
 
-    # Cut selection to those attributes which are contained in gp_source
+    # Ensure attr is a list and restrict to columns that actually exist in gp_source
     if not isinstance(attr, list):
         if isinstance(attr, str):
             attr = [attr]
-    
+
     attr = [at for at in attr if at in gp_source.columns]
-    
-    # Drop attributes already contained in gp1
+
+    # Remove attributes which already exist in gp1
     ex_attr = [at for at in attr if at in gp1.columns]
     if len(ex_attr) > 0:
         print(f'\nAttributes {ex_attr} already contained in gp1. Columns are dropped and overwritten.')
 
-    gp1.drop(columns = ex_attr, inplace = True)
+    gp1 = gp1.copy()
+    gp1.drop(columns=ex_attr, inplace=True, errors="ignore")
 
-    gtemp = gp.overlay(gp1, gp_source[attr + ['geometry']], how='intersection', keep_geom_type = False)
+    # ---------- spatial pre-selection with spatial index ----------
+    # Build spatial index from gp_source
+    sidx = gp_source.sindex
 
+    # For each object in gp1, get the potentially intersecting objects from gp_source
+    # using bounding box intersection (fast)
+    candidate_lists = gp1.geometry.bounds.apply(
+        lambda b: list(sidx.intersection(b)), axis=1
+    )
+
+    # Reduce gp_source to the union of all candidate indices
+    all_candidate_idx = sorted(set(i for lst in candidate_lists for i in lst))
+    if len(all_candidate_idx) == 0:
+        # No potential intersections: just append empty columns and return
+        for at in attr:
+            gp1[at] = None
+        return gp1
+
+    gp_source_reduced = gp_source.iloc[all_candidate_idx]
+
+    # ---------- actual overlay only with preselected subset ----------
+    gtemp = gp.overlay(
+        gp1,
+        gp_source_reduced[attr + ['geometry']],
+        how='intersection',
+        keep_geom_type=False
+    )
+
+    # Define metric for "maximum intersection"
     gtemp['temporary'] = gtemp.length
 
-    if (all(gp1.geom_type.isin(['LineString', 'MultiLineString'])) & all(gp_source.geom_type.isin(['Polygon', 'MultiPolygon']))) | (all(gp_source.geom_type.isin(['LineString', 'MultiLineString'])) & all(gp1.geom_type.isin(['Polygon', 'MultiPolygon']))):        
+    if (
+        (all(gp1.geom_type.isin(['LineString', 'MultiLineString'])) and
+         all(gp_source.geom_type.isin(['Polygon', 'MultiPolygon'])))
+        or
+        (all(gp_source.geom_type.isin(['LineString', 'MultiLineString'])) and
+         all(gp1.geom_type.isin(['Polygon', 'MultiPolygon'])))
+    ):
+        # Line–polygon combinations: use intersection length
         gtemp['temporary'] = gtemp.length
-
-    elif (all(gp1.geom_type.isin(['Polygon', 'MultiPolygon'])) & all(gp_source.geom_type.isin(['Polygon', 'MultiPolygon']))):
+    elif (
+        all(gp1.geom_type.isin(['Polygon', 'MultiPolygon'])) and
+        all(gp_source.geom_type.isin(['Polygon', 'MultiPolygon']))
+    ):
+        # Polygon–polygon combinations: use intersection area
         gtemp['temporary'] = gtemp.area
 
+    if gtemp.empty:
+        # No real intersections -> return with empty attribute columns
+        for at in attr:
+            gp1[at] = None
+        return gp1
+
+    # For each gp1 object, keep the record with the largest intersection area/length
     idxmax = gtemp.groupby(by=gp1_id)['temporary'].idxmax()
     ls = gtemp.loc[idxmax.values, [gp1_id] + attr].set_index(gp1_id, drop=True)
     ls.index = [dictemp[p] for p in ls.index]
 
-    gp1[attr] = ls
+    # Write new attributes back to gp1 (aligned by index)
+    gp1.loc[ls.index, attr] = ls[attr]
 
-    return (gp1)
+    return gp1
 
 def assign_attr_by_max_intersection_area_agg(
     gp1:gp.GeoDataFrame, # Polygons

@@ -390,7 +390,7 @@ def closest_objects_to_points(points:gp.GeoDataFrame, geomObjects:gp.GeoDataFram
     if 'maxDist' in kwargs.keys():
         maxDist = kwargs['maxDist']
 
-        if type(maxDist) == float | type(maxDist) == int:
+        if isinstance(maxDist, (float, int)):
             maxDist = np.ones(points.shape[0]) * maxDist
 
     else:
@@ -551,6 +551,7 @@ def extractPointsFromLines(
             coordsList += coords_j
 
     return pointsList, coordsList
+
 
 
 def detect_lines_in_narrow_passages(

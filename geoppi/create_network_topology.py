@@ -271,7 +271,7 @@ def createUniqueJunctions(
     Function that creates a set of unique junctions at all start- and end-coordinates of the given GeoDataFrame of line objects **lines**
 
     :param lines: GeoDataFrame containing lines
-    :param splitLines: Boolean if linesshall be splitted at identified crossings of lines (if existent).
+    :param splitLines: Boolean if lines shall be splitted at identified crossings of lines (if existent).
     :return: GeoDataFrame of all **junctions** and GeoDataFrame of (separated) lines.
     """
 

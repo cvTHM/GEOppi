@@ -8,8 +8,30 @@ import networkx as nx
 import libpysal
 import warnings
 from tqdm import tqdm
+import shapely
+import logging
 from shapely.geometry import Point, LineString
 from shapely.ops import transform
+
+# %%
+
+# p1 = Point((2,1))
+# p2 = Point((5,0))
+
+# l1 = LineString([(0,0), (1,0)])
+# l2 = LineString([(0,0), (-1,0)])
+# l3 = LineString([(0,1), (0,5)])
+
+
+# p1.distance(l1)
+
+
+# closest_objects_to_points(
+#     points = gp.GeoDataFrame(geometry = [p1, p2]), 
+#     geomObjects = gp.GeoDataFrame(geometry = [l1,l2,l3]), 
+#     nObjects = 2, 
+#     maxDist = np.ones(2)*5.1)
+# %%
 
 def assign_attr_by_max_intersection_area(gp1:gp.GeoDataFrame, gp_source:gp.GeoDataFrame, attr:str, gp1_id:str='id'):
 
@@ -128,8 +150,8 @@ def assign_attr_by_max_intersection_area_agg(
     """
 
     # Plausbibility checks
-    if agg_func not in ("sum", "mean"):
-        raise ValueError(f"\n... argument agg_func must be either 'sum' or 'mean'.")
+    if agg_func not in ("sum", "mean", None):
+        raise ValueError(f"\n... argument agg_func must be either 'sum' or 'mean' or None.")
     
     if not all(gp1.geom_type.isin(['Polygon', 'MultiPolygon'])):
         raise ValueError(f"\n... All objects from gp1 must be of type Polygon or MultiPolygon.")
@@ -234,6 +256,8 @@ def assign_attr_by_max_intersection_area_agg(
         df_agg = df_matches.groupby(gp1_id)[attr].sum()
     elif agg_func == "mean":
         df_agg = df_matches.groupby(gp1_id)[attr].mean()
+    elif agg_func == None:
+        df_agg = df_matches.groupby(gp1_id)[attr].first()
 
     # --- Assign aggregated values back to gp1 ---
     gp1 = gp1.set_index(gp1_id)
@@ -241,6 +265,8 @@ def assign_attr_by_max_intersection_area_agg(
     gp1 = gp1.reset_index()
 
     return gp1
+
+
 
 def calc_intersection_area(
     gp_source:gp.GeoDataFrame,
@@ -299,6 +325,389 @@ def calc_intersection_area(
 
     return gp1
 
+
+
+def nearest_points(geom1, geom2):
+    """
+    Function to determine the two closest points of two input geometries..\n
+    
+    :param geom1: first input geometry.\n
+    :param geom2: second input geometry.\n
+    :returns: tuple containing the calculated nearest points in the input geometries.\n
+    The points are returned in the same order as the input geometries.
+    """
+    seq = shapely.shortest_line(geom1, geom2)
+    if seq is None:
+        if geom1.is_empty:
+            raise ValueError("The first input geometry is empty")
+        else:
+            raise ValueError("The second input geometry is empty")
+
+    p1 = shapely.get_point(seq, 0)
+    p2 = shapely.get_point(seq, 1)
+    return (p1, p2)
+
+
+def get_adjacent_lines(
+    polygons:gp.GeoDataFrame,
+    lines:gp.GeoDataFrame,
+    dist:float = 100,
+    nLines:int = 10,
+    resolution:float = 2,
+    blocking_polygons:gp.GeoDataFrame = None,
+    return_connection_lines:bool = False,
+    unique_ID_polys:str = 'unID_polys',
+    unique_ID_lines:str = 'unID_lines',
+    col_adjacentLineIDs:str = 'adjacentLine_IDs',
+    col_adjacentDists:str = 'adjacentDists',
+    col_adjacentConnectionLines:str = 'adjacentConnectionLines'
+    ):
+
+    from auxFunctions import nearest_points
+
+    """
+    Function to determine adjacent lines to provided polygons in such way that either the *nLines* nearest lines within *dist* are returned or only those where the direct connection from polygons to lines does not intersect any object from *parcels*.\n
+
+    :param polygons: GeoDataFrame of polygons to determine adjacent lines for.\n
+    :param lines: GeoDataFrame of lines to determine adjacent lines from.\n
+    :param dist: Distance within which to search for adjacent lines.\n
+    :param nLines: Maximum number of adjacent lines to return.\n
+    :param resolution: Resolution of points along plolygon boundaries.\n
+    :param blocking_polygons: GeoDataFrame of polygons to identify non-adjacent lines (blocking the way).\n
+    :param return_connection_lines: Boolean to return connection lines.\n
+    :param unique_ID_polys: Name of unique ID column in *polygons*.\n
+    :param unique_ID_lines: Name of unique ID column in *lines*.\n
+    :param col_adjacentLineIDs: Name of column to store IDs of adjacent lines.\n
+    :param col_adjacentDists: Name of column to store distances to adjacent lines.\n
+    :return: GeoDataFrame of polygons with adjacent lines as attribute.
+    """
+
+    ### Plausibility checks
+    cs = polygons.crs
+    if cs != lines.crs:
+        lines = lines.copy().to_crs(cs)
+        logging.warning(f'\nAttention! Polygons and lines do not share same crs!')
+
+    if unique_ID_lines not in lines.columns:
+        lines[unique_ID_lines] = np.arange(len(lines))
+    if unique_ID_polys not in polygons.columns:
+        polygons[unique_ID_polys] = np.arange(len(polygons))
+
+    # Create temporary copies and reset indices
+    lines = lines.copy()
+    lines.reset_index(inplace = True, drop = True)
+    dict_idx_idLines = dict(zip(lines.index, lines[unique_ID_lines]))
+
+    ### Create circumferential points around polygons
+    circumferentialPoints = create_circumferential_points(polygons = polygons, distance = resolution)
+    circumferentialPoints[unique_ID_polys] = polygons[unique_ID_polys].copy()
+    circumferentialPoints = circumferentialPoints.explode(index_parts = True).reset_index(drop = True)
+
+    ### Find closest object to each point (indicating index of closest line segment)
+    idxs, distances = closest_objects_to_points(points = circumferentialPoints, geomObjects = lines, nObjects = nLines, maxDist = np.ones(len(circumferentialPoints))*dist)
+        
+    ### Assign nearest line segments to each point at polys' boundaries
+    circumferentialPoints['nearestLines']                            = idxs
+    circumferentialPoints['distanceToLines']                         = distances
+
+    groupedLineIDs = circumferentialPoints.groupby(by = unique_ID_polys)["nearestLines"].sum()
+    groupedDists = circumferentialPoints.groupby(by = unique_ID_polys)["distanceToLines"].sum()
+
+    if return_connection_lines:
+        connectionLines = [[LineString(nearest_points(geom1 = row.geometry, geom2 = lines.iloc[int(k)].geometry)) if k is not None and not (isinstance(k, float) and np.isnan(k)) else None for k in row["nearestLines"]] for _, row in circumferentialPoints.iterrows()]
+
+        circumferentialPoints["connectionLines"] = connectionLines
+
+        groupedConnectionLines = circumferentialPoints.groupby(by = unique_ID_polys)["connectionLines"].sum()
+        adjacentConnectionLines = []
+
+    ### Get unique lines belonging to each polygon
+    adjacentLines, adjacentDists = [], []
+    
+    for nn, ll in enumerate(groupedLineIDs.values):
+        mins = {}
+        lines_res = {}
+        
+        idxnoNaN = ~np.isnan(ll)
+        ll = np.array(ll)[idxnoNaN] # Filter out nan line ids
+        dd = np.array(groupedDists.values[nn])[idxnoNaN]
+        cc = np.array(groupedConnectionLines.values[nn])[idxnoNaN] if return_connection_lines else np.full(len(ll), None)[idxnoNaN]
+
+        for idx, (i, d) in enumerate(zip(ll, dd)):
+            if d < mins.get(i, float("inf")):
+                mins[i] = d
+                lines_res[i] = cc[idx]
+
+        if len(mins.keys()) == 0:
+            uniqueLines, shortestDists = tuple(), tuple()
+            uniqueLines_geoms = tuple()
+        else:            
+            uniqueLines, shortestDists = zip(*mins.items())
+            _, uniqueLines_geoms = zip(*lines_res.items())
+
+        adjacentLines.append(uniqueLines)
+        adjacentDists.append(shortestDists)
+        adjacentConnectionLines.append(uniqueLines_geoms)
+
+   
+    # Store in pandas DataFrame
+    if not return_connection_lines and blocking_polygons is None:
+        df_adjacentLines = pd.DataFrame(index = groupedLineIDs.index, data = {col_adjacentLineIDs: adjacentLines, col_adjacentDists: adjacentDists})
+    else:
+        df_adjacentLines = pd.DataFrame(index = groupedLineIDs.index, data = {col_adjacentLineIDs: adjacentLines, col_adjacentDists: adjacentDists, col_adjacentConnectionLines: adjacentConnectionLines})
+
+        df_connectionLines = groupedConnectionLines.copy()
+        df_connectionLines[:] = adjacentConnectionLines # Assign only nObjects shortest geometries of single LineStrings for each building
+        df_connectionLines = df_connectionLines.explode()
+        df_connectionLines = gp.GeoDataFrame(data = {unique_ID_polys:df_connectionLines.index}, geometry = df_connectionLines.values, crs = cs)
+
+
+    # Check lines for intersection with other polygons
+    # If no intersection is found, empty list is returned []
+    if blocking_polygons is not None:
+        df_connectionLines["blocking_polygons"] = None
+        polys_sindex = polygons.sindex
+
+        for idx, cL in df_connectionLines.iterrows():
+            blocking_polys_ids = []
+
+            own_poly_id = cL[unique_ID_polys]
+            cL_geom = cL.geometry
+
+            blocking_polys_candidates_idx = list(polys_sindex.query(cL.geometry, predicate = "intersects"))
+
+            for ps in blocking_polys_candidates_idx:
+                poly_row = polygons.iloc[ps]
+
+                if poly_row[unique_ID_polys] == own_poly_id:
+                    continue
+
+                intersection = cL_geom.intersection(poly_row.geometry)
+
+                if intersection.length > 0:
+                    blocking_polys_ids.append(poly_row[unique_ID_polys])
+
+            df_connectionLines.at[idx, "blocking_polygons"] = blocking_polys_ids
+
+
+        df_connectionLines["valid_adjacent_line_geoms"] = df_connectionLines["blocking_polygons"].apply(lambda x: isinstance(x, list) and len(x) == 0)
+        grouped2 = df_connectionLines[df_connectionLines["valid_adjacent_line_geoms"] == True].groupby(by = unique_ID_polys)["geometry"].agg(list)
+
+
+        df_adjacentLines[col_adjacentConnectionLines] = grouped2
+
+   
+    ### Assign results to polygons
+    polygons = pd.merge(polygons, df_adjacentLines, how = 'left', left_on = unique_ID_polys, right_index = True)
+
+    if return_connection_lines:
+        return polygons, df_connectionLines
+    else:
+        return polygons
+
+
+def check_point_access_to_roads(
+    boundary_points: gp.GeoDataFrame,
+    roads: gp.GeoDataFrame,
+    parcels: gp.GeoDataFrame,
+    traffic_parcels: gp.GeoDataFrame,
+    point_parcel_id_col: str,
+    parcel_id_col: str,
+    road_id_col: str | None = None,
+    max_road_dist: float = 100,
+    intersection_tol: float = 0.01,
+    use_inner_buffer: bool = True
+) -> gp.GeoDataFrame:
+    """
+    Prüft für Grenzpunkte von Flurstücken, ob eine freie Verbindung zur nächsten Straße besteht.
+
+    Ausgeschlossen werden:
+    - das eigene Flurstück anhand der Flurstück-ID
+    - Verkehrsflurstücke rein geometrisch über den traffic_parcels-Layer
+    """
+
+    if boundary_points.crs != roads.crs:
+        raise ValueError("boundary_points und roads haben unterschiedliche CRS.")
+
+    if boundary_points.crs != parcels.crs:
+        raise ValueError("boundary_points und parcels haben unterschiedliche CRS.")
+
+    if boundary_points.crs != traffic_parcels.crs:
+        raise ValueError("boundary_points und traffic_parcels haben unterschiedliche CRS.")
+
+    # Alle Verkehrsflächen zu einer Geometrie zusammenfassen
+    traffic_union = traffic_parcels.geometry.union_all()
+
+    road_sindex = roads.sindex
+    parcel_sindex = parcels.sindex
+
+    nearest_road_ids = []
+    nearest_road_distances = []
+    access_lines = []
+    is_blocked_list = []
+    is_clear_list = []
+    blocking_ids_list = []
+
+    for idx, row in tqdm(
+        boundary_points.iterrows(),
+        total=len(boundary_points),
+        desc="Prüfe Anliegerschaft"
+    ):
+
+        point = row.geometry
+        own_parcel_id = row[point_parcel_id_col]
+
+        search_geom = point.buffer(max_road_dist)
+
+        road_candidates_idx = list(
+            road_sindex.query(search_geom, predicate="intersects")
+        )
+
+        if len(road_candidates_idx) == 0:
+            nearest_road_ids.append(np.nan)
+            nearest_road_distances.append(np.nan)
+            access_lines.append(None)
+            is_blocked_list.append(True)
+            is_clear_list.append(False)
+            blocking_ids_list.append([])
+            continue
+
+        min_dist = np.inf
+        nearest_road_pos = None
+        nearest_road_geom = None
+
+        for road_pos in road_candidates_idx:
+            road_geom = roads.geometry.iloc[road_pos]
+            dist = point.distance(road_geom)
+
+            if dist < min_dist:
+                min_dist = dist
+                nearest_road_pos = road_pos
+                nearest_road_geom = road_geom
+
+        if nearest_road_geom is None or min_dist > max_road_dist:
+            nearest_road_ids.append(np.nan)
+            nearest_road_distances.append(np.nan)
+            access_lines.append(None)
+            is_blocked_list.append(True)
+            is_clear_list.append(False)
+            blocking_ids_list.append([])
+            continue
+
+        _, nearest_point_on_road = nearest_points(point, nearest_road_geom)
+        access_line = LineString([point, nearest_point_on_road])
+
+        if road_id_col is None:
+            nearest_road_id = roads.index[nearest_road_pos]
+        else:
+            nearest_road_id = roads.iloc[nearest_road_pos][road_id_col]
+
+        parcel_candidates_idx = list(
+            parcel_sindex.query(access_line, predicate="intersects")
+        )
+
+        blocking_ids = []
+
+        for parcel_pos in parcel_candidates_idx:
+            parcel_row = parcels.iloc[parcel_pos]
+            parcel_id = parcel_row[parcel_id_col]
+
+            # Eigenes Flurstück ausschließen
+            if parcel_id == own_parcel_id:
+                continue
+
+            parcel_geom = parcel_row.geometry
+
+            # Verkehrsflächen geometrisch ausschließen
+            if parcel_geom.intersection(traffic_union).area > intersection_tol:
+                continue
+
+            if use_inner_buffer:
+                check_geom = parcel_geom.buffer(-intersection_tol)
+
+                if check_geom.is_empty:
+                    check_geom = parcel_geom
+            else:
+                check_geom = parcel_geom
+
+            intersection = access_line.intersection(check_geom)
+
+            if intersection.length > intersection_tol:
+                blocking_ids.append(parcel_id)
+
+        is_blocked = len(blocking_ids) > 0
+
+        nearest_road_ids.append(nearest_road_id)
+        nearest_road_distances.append(min_dist)
+        access_lines.append(access_line)
+        is_blocked_list.append(is_blocked)
+        is_clear_list.append(not is_blocked)
+        blocking_ids_list.append(blocking_ids)
+
+    result = boundary_points.copy()
+
+    result["nearest_road_id"] = nearest_road_ids
+    result["nearest_road_distance"] = nearest_road_distances
+    result["access_line"] = access_lines
+    result["is_blocked"] = is_blocked_list
+    result["is_clear_to_road"] = is_clear_list
+    result["blocking_parcel_ids"] = blocking_ids_list
+
+    return result
+
+
+def get_anliegerstrassen_by_parcel(
+    parcels: gp.GeoDataFrame,
+    point_access: gp.GeoDataFrame,
+    parcel_id_col: str,
+    point_parcel_id_col: str | None = None,
+    road_id_col: str = "nearest_road_id",
+    clear_col: str = "is_clear_to_road",
+    output_col: str = "anliegerstrassen"
+) -> gp.GeoDataFrame:
+    """
+    Erstellt je Flurstück eine Liste eindeutiger Anliegerstraßen.
+    Wenn keine Anliegerstraße vorhanden ist, wird [] gesetzt.
+    """
+
+    if point_parcel_id_col is None:
+        point_parcel_id_col = parcel_id_col
+
+    clear_points = point_access.loc[
+        (point_access[clear_col] == True)
+        & point_access[road_id_col].notna()
+    ].copy()
+
+    agg = (
+        clear_points
+        .groupby(point_parcel_id_col)[road_id_col]
+        .apply(lambda x: list(pd.unique(x)))
+        .reset_index(name=output_col)
+    )
+
+    result = parcels.copy()
+
+    result = result.merge(
+        agg,
+        left_on=parcel_id_col,
+        right_on=point_parcel_id_col,
+        how="left"
+    )
+
+    if point_parcel_id_col != parcel_id_col and point_parcel_id_col in result.columns:
+        result = result.drop(columns=[point_parcel_id_col])
+
+    mask = result[output_col].isna()
+
+    result.loc[mask, output_col] = pd.Series(
+        [[] for _ in range(mask.sum())],
+        index=result.index[mask]
+    )
+
+    return result
+
+
+
 def round_coords_2D(geom, ndigits:int=3):
     """
     Function that rounds entire geometries of 2D LineString objects to desired number of decimal digits.\n
@@ -315,7 +724,7 @@ def round_coords_2D(geom, ndigits:int=3):
     
     return transform(_round, geom)
 
-def create_circumferential_points(polygons:gp.GeoDataFrame, npoints:int = 10, lmin:float = 5)->gp.GeoDataFrame:
+def create_circumferential_points(polygons:gp.GeoDataFrame, distance = None, npoints:int = 10, lmin:float = 5)->gp.GeoDataFrame:
 
     """
     Function creating MultiPoint object with circumferential points around boundary of each polygon object in **polygons**.
@@ -335,11 +744,35 @@ def create_circumferential_points(polygons:gp.GeoDataFrame, npoints:int = 10, lm
     bounds['geometry'] = bounds.geometry.boundary
    
     print('\n### Generating circumferential points ... ###\n')
-    bounds['circumferentialPoints'] = bounds.geometry.apply(lambda x: create_point_splitter_npoints(x, npoints = npoints, lmin = lmin))
+    bounds['circumferentialPoints'] = bounds.geometry.apply(lambda x: create_point_splitter_npoints(x, npoints = npoints, distance = distance, lmin = lmin))  
 
     points = gp.GeoDataFrame(bounds[['circumferentialPoints']].rename(columns = {'circumferentialPoints':'geometry'}), geometry = 'geometry')
 
+    # points = gp.GeoDataFrame(geometry = [create_points_along_boundary(p, dist = distance, return_Point_object = True) for p in tqdm(polygons.geometry)], crs = polygons.crs)
+
     return points
+
+
+def create_points_along_boundary(polygon, return_Point_object:bool = False, dist:float = 1):
+
+        """
+        Function creating circumferential points along boundary of a polygon object.\n
+
+        :param polygon: shapely.Polygon object.\n
+        :param dist: float denoting the desired distance between circumferential points along boundary to create.\n
+
+        :return: list of points along boundary of the polygon
+        """
+
+        boundary = polygon.boundary
+        if boundary.length == 0:
+            return []
+        
+        numPoints = int(boundary.length // dist)
+        if return_Point_object:
+            return MultiPoint([Point(np.round(boundary.interpolate(ii * dist).x, 2), np.round(boundary.interpolate(ii * dist).y, 2)) for ii in range(numPoints+1)])
+        else:
+            return [(np.round(boundary.interpolate(ii * dist).x, 2), np.round(boundary.interpolate(ii * dist).y, 2)) for ii in range(numPoints+1)]
 
 def create_point_splitter_npoints(line, npoints:int = 8, distance:float = None, lmin:float = 5):
 
@@ -371,14 +804,17 @@ def create_point_splitter_npoints(line, npoints:int = 8, distance:float = None, 
     return(result)
 
 
-def closest_objects_to_points(points:gp.GeoDataFrame, geomObjects:gp.GeoDataFrame, **kwargs)->tuple[np.array, np.array]:
+def closest_objects_to_points(points:gp.GeoDataFrame, geomObjects:gp.GeoDataFrame, nObjects:int = 1, **kwargs)->tuple[np.array, np.array]:
 
     """
     Function that returns the index of the closest geometry object to each point in **points**.\n
     A kwarg can be "maxDist", either as array for each point in **points** or as a constant float/integer applied to all points.\n
+    If no matching object within the maximum distance is found, np.nan is entered.\n
+    If nObjects > 1, found objects within the provided threshold distance are returned as a list with ascending distance.\n
 
     :param points: GeoDataFrame of point objects for which to find closest geometry object in **geomObjects**\n
-    :param geomObjects: GeoDataFrame containting geometry objects of arbitrary type in whcih to look for closest objects.\n
+    :param geomObjects: GeoDataFrame containting geometry objects of arbitrary type in whcih to look for closest objects using *shapely.distance*.\n
+    :param nObjects: int (optional), denoting the max. number of geometric objects to return for each point.\n
     :kwargs: if 'maxDist' is contained in kwargs.keys(), the maximum searching distance for the closest geometry object is restricted to this value. Can either be provided point-wise ias an array or as a constant value (float, integer) for all points. If no matching object within the maximum distance is found, np.nan is entered.\n
 
     :return: Two numpy.arrays with (i) indicating the matching index of the closest object found in **geomObjects** and (ii) the corresponding distances.
@@ -390,7 +826,7 @@ def closest_objects_to_points(points:gp.GeoDataFrame, geomObjects:gp.GeoDataFram
     if 'maxDist' in kwargs.keys():
         maxDist = kwargs['maxDist']
 
-        if isinstance(maxDist, (float, int)):
+        if type(maxDist) == float | type(maxDist) == int:
             maxDist = np.ones(points.shape[0]) * maxDist
 
     else:
@@ -420,21 +856,48 @@ def closest_objects_to_points(points:gp.GeoDataFrame, geomObjects:gp.GeoDataFram
         d = INFTY
         nid = None
 
-        for h in hits:
-            new_d = p.distance(geomObjects.geometry.loc[h])
+        if nObjects == 1:
+            for h in hits:
+                new_d = p.distance(geomObjects.geometry.loc[h])
 
-            if (d >= new_d) & (new_d < max_dist):
-                d = new_d
-                nid = geomObjects.index[h]
+                if (d >= new_d) & (new_d <= max_dist):
+                    d = new_d
+                    nid = geomObjects.index[h]
 
-        if nid is None:
-            result.append(np.nan)
-            dists.append(d)
+            if nid is None:
+                result.append(np.nan)
+                dists.append(d)
 
-        else:
-            result.append(nid)
-            dists.append(d)
+            else:
+                result.append(nid)
+                dists.append(d)
 
+
+        elif nObjects > 1: # Multiple closest objects shall be returned
+            nid_list = []
+            d_list = []
+
+            for h in hits:
+                new_d = p.distance(geomObjects.geometry.loc[h])
+
+                if (new_d <= max_dist):
+                    d = new_d
+                    nid = geomObjects.index[h]
+
+                    nid_list.append(nid)
+                    d_list.append(d)
+
+            if len(nid_list) == 0:
+                result.append([np.nan])
+                dists.append([np.nan])
+
+            else:
+                sort_idx = np.argsort(d_list)
+                nid_list = np.array(nid_list)[sort_idx]
+                d_list = np.array(d_list)[sort_idx]
+
+                result.append(list(nid_list[:nObjects]))
+                dists.append(list(d_list[:nObjects]))       
 
     return result, dists
 

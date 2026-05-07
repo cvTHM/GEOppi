@@ -6,6 +6,9 @@ import numpy as np
 
 from geoppi.auxFunctions import (create_circumferential_points, closest_objects_to_points, assign_attr_by_max_intersection_area, )
 
+
+
+
 def closest_lines_to_polygons(
         polygons:gp.GeoDataFrame,
         lines:gp.GeoDataFrame,
@@ -13,7 +16,7 @@ def closest_lines_to_polygons(
         )->gp.GeoDataFrame:
     
     """
-    Function that matches index of closest line object to each polygon provided in **polygons** based on spatial indexing with pbox.
+    Function that matches index of closest line object to each polygon provided in **polygons** based on spatial indexing with pbox and points along polygon boundaries.
 
     :param polygons: GeoDataFrame containing polygon objects.\n
     :param lines: GeoDataFrame containting line objects in which to searhc for closest objects.\n

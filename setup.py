@@ -15,12 +15,14 @@ setup(
     include_package_data = True,
     install_requires = [
         'numpy',
-        'pandas',
+        'pandas<=2.3.3',
         'geopandas',
-        'pandapower==2.14.11',
-        'pandapipes>=0.10.0',
-        'rasterio',
+        'pandapower',
+        'pandapipes<=0.11',
+        'rasterio==1.3.10',
+        'rasterstats',
         'networkx',
+        'libpysal',
     ],
-    python_requires=">=3.10"
+    python_requires="~=3.12"
 )

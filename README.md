@@ -151,7 +151,7 @@ The software tool is licensed under the [MIT License](https://github.com/cvTHM/G
 **GEOppi** and its functionalities are first introduced to public in a conference article.
 When using **GEOppi** in your research, please cite it as follows:
 
-Völzel, C., Schug, N., Textor, M., Lechner, S. (2025): Constructing heating networks from GIS data: A framework for editing and converting line topologies into calculable grids. Konferenzbeitrag, NEIS 2025 Conference on Sustainable Energy Supply and Energy Storage, Hamburg, September 2025
+Völzel, C., Schug, N., Textor, M., Lechner, S. (2025): Constructing heating networks from GIS data: A framework for editing and converting line topologies into calculable grids. Konferenzbeitrag, NEIS 2025 Conference on Sustainable Energy Supply and Energy Storage, Hamburg, September 2025, DOI: [10.30420/566633009](https://www.tib.eu/de/suchen/id/vde:566633009)
 
 ## Contact
 Please refer to the issues or the discussion section on the GitHub repository for questions and feedback.

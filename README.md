@@ -114,13 +114,16 @@ width="100%"/><br>
 ## Technical requirements
 **GEOppi** requires the following essential modules in the used Python environment
 
-- [pandapipes](https://github.com/e2nIEE/pandapipes) version >= 0.10.0
+- [pandapipes](https://github.com/e2nIEE/pandapipes) version ~= 0.11
 - [pandapower](https://github.com/e2nIEE/pandapower)
 - [NumPy](https://github.com/numpy/numpy)
-- [Pandas](https://github.com/pandas-dev/pandas)
+- [Pandas](https://github.com/pandas-dev/pandas) version <= 2.3.3
 - [GeoPandas](https://github.com/geopandas/geopandas)
 - [Rasterio](https://github.com/rasterio/rasterio)
+- [rasterstats](https://pypi.org/project/rasterstats/)
 - [networkx](https://github.com/networkx/networkx)
+- [libpysal](https://github.com/pysal/libpysal)
+
 
 **Used input data types**
 - Geo-referenced data are taken as inputs and given as outputs in GPKG format (applies to all geometry objects)

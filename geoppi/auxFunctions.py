@@ -10,8 +10,14 @@ import warnings
 from tqdm import tqdm
 import shapely
 import logging
+<<<<<<< HEAD
 from shapely.geometry import Point, LineString, MultiPoint
+=======
+from shapely.geometry import Point, LineString, MultiLineString, MultiPolygon
+>>>>>>> e0a7d30 (Enhanced geometry imports for a new function and improved handling of NaN values in detect_lines_in_narrow_passages function)
 from shapely.ops import transform
+from shapely.strtree import STRtree
+from shapely.prepared import prep
 
 # %%
 
@@ -934,7 +940,8 @@ def detect_lines_in_narrow_passages(
     joined = gp.sjoin(lines, shortestLineObjects[['geometry', 'length_m']], how = 'left', predicate = 'intersects')
     joined['index_left'] = joined.index
     joined.reset_index(drop = True, inplace = True)
-    idxs_min = joined.groupby('index_left')['length_m'].idxmin().dropna()
+    valid = joined.dropna(subset=['length_m'])
+    idxs_min = valid.groupby('index_left')['length_m'].idxmin().dropna()
     lines.loc[idxs_min.index, col] = joined.loc[idxs_min.values, 'length_m'].values
     shortestLines = shortestLineObjects.loc[joined.loc[idxs_min.values, 'index_right'].values]
 

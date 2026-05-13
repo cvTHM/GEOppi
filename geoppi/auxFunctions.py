@@ -10,11 +10,7 @@ import warnings
 from tqdm import tqdm
 import shapely
 import logging
-<<<<<<< HEAD
-from shapely.geometry import Point, LineString, MultiPoint
-=======
-from shapely.geometry import Point, LineString, MultiLineString, MultiPolygon
->>>>>>> e0a7d30 (Enhanced geometry imports for a new function and improved handling of NaN values in detect_lines_in_narrow_passages function)
+from shapely.geometry import Point, MultiPoint, LineString, MultiLineString, MultiPolygon
 from shapely.ops import transform
 from shapely.strtree import STRtree
 from shapely.prepared import prep

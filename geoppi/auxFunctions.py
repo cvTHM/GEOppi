@@ -822,6 +822,233 @@ def extractPointsFromLines(
     return pointsList, coordsList
 
 
+def measure_street_width(
+    axis_lines: gp.GeoDataFrame,
+    street_parcels: gp.GeoDataFrame,
+    step_size: float = 1.0,
+    max_range: float = 50.0,
+    max_valid_width: float = 15.0,
+    fan_angles: list = None,
+    overlap_threshold: int = 0,
+    min_boundary_angle: float = 0.0,
+):
+    """
+    Function that measures street width by casting rays from sample points along given axis lines against the boundary of the merged street parcel polygon.\n
+
+    :param axis_lines: GeoDataFrame containing street axis LineString objects.\n
+    :param street_parcels: GeoDataFrame containing street parcel polygons (merged internally via union_all()).\n
+    :param step_size: float denoting the distance between sample points along each axis line.\n
+    :param max_range: float denoting the maximum ray length in meters.\n
+    :param max_valid_width: float denoting the maximum valid total width; measurements >= this value are discarded.\n
+    :param fan_angles: list of angles in degrees relative to the perpendicular; per point the angle yielding the smallest total width wins. Defaults to [0.0].\n
+    :param overlap_threshold: integer; if > 0, a measurement line is dropped when it intersects with more than this many other measurement lines (filters chaotic measurements).\n
+    :param min_boundary_angle: float; if > 0, a measurement line is dropped if its endpoint hits the street boundary outside [min_boundary_angle, 180 - min_boundary_angle] degrees.\n
+
+    :return: tuple (profile_gdf, lines_gdf) of GeoDataFrames; profile_gdf holds sample points with width attributes, lines_gdf holds the measurement lines.
+    """
+    if fan_angles is None:
+        fan_angles = [0.0]
+    if axis_lines.crs != street_parcels.crs:
+        street_parcels = street_parcels.to_crs(axis_lines.crs)
+
+    # Prepare merged street polygon (one geometry instead of many parcels)
+    road          = street_parcels.geometry.union_all()
+    road_prep     = prep(road)
+    road_boundary = road.boundary
+
+    # ---- nested helpers ----
+
+    def _flatten_lines(geoms):
+        """Flatten an iterable of LineString/MultiLineString geometries into a list of plain LineStrings."""
+        out = []
+        for g in geoms:
+            if g is None or g.is_empty:
+                continue
+            if g.geom_type == 'MultiLineString':
+                out.extend(g.geoms)
+            else:
+                out.append(g)
+        return out
+
+    def _tangent(line, dist, delta=0.1):
+        """Unit tangent vector of line at position dist (None if direction is undefined)."""
+        a = line.interpolate(max(0, dist - delta))
+        b = line.interpolate(min(line.length, dist + delta))
+        dx, dy = b.x - a.x, b.y - a.y
+        L = math.hypot(dx, dy)
+        if L == 0:
+            return None
+        return dx / L, dy / L
+
+    def _rotate(vec, angle_deg):
+        """Rotate a 2D vector by angle_deg degrees (counter-clockwise)."""
+        a = math.radians(angle_deg)
+        c, s = math.cos(a), math.sin(a)
+        return vec[0] * c - vec[1] * s, vec[0] * s + vec[1] * c
+
+    def _cast_ray(start, vec):
+        """Distance from start in direction vec until the boundary is hit (or max_range)."""
+        end = (start.x + vec[0] * max_range, start.y + vec[1] * max_range)
+        ray = LineString([(start.x, start.y), end])
+        hits = ray.intersection(road_boundary)
+        if hits.is_empty:
+            return max_range
+        if hits.geom_type == 'Point':
+            points = [hits]
+        elif hits.geom_type == 'MultiPoint':
+            points = list(hits.geoms)
+        else:
+            return max_range
+        distances = [start.distance(p) for p in points if start.distance(p) > 1e-6]
+        return min(distances) if distances else max_range
+
+    def _ray_crosses_other_axis(start, vec, length):
+        """True if the ray crosses another axis line further than 5 cm from its start."""
+        if length < 0.01 or axis_tree is None:
+            return False
+        end = (start.x + vec[0] * length, start.y + vec[1] * length)
+        ray = LineString([(start.x, start.y), end])
+        for j in axis_tree.query(ray, predicate='intersects'):
+            inter = ray.intersection(axis_geoms[int(j)])
+            if not inter.is_empty and inter.distance(start) > 0.05:
+                return True
+        return False
+
+    def _filter_overlap(profile, lines):
+        """Drop measurement lines that intersect with >= overlap_threshold other measurement lines."""
+        geoms = list(lines.geometry)
+        tree = STRtree(geoms)
+        keep = []
+        for i, g in enumerate(geoms):
+            n = sum(1 for j in tree.query(g, predicate='intersects') if int(j) != i)
+            keep.append(n < overlap_threshold)
+        return profile.loc[keep].reset_index(drop=True), lines.loc[keep].reset_index(drop=True)
+
+    def _filter_boundary_angle(profile, lines, search_radius=0.5):
+        """Drop measurement lines whose endpoint hits the street boundary at an angle outside [min_boundary_angle, 180 - min_boundary_angle]."""
+        max_angle = 180.0 - min_boundary_angle
+        polys = list(road.geoms) if isinstance(road, MultiPolygon) else [road]
+        starts_list, vecs_list = [], []
+        for poly in polys:
+            for ring in [poly.exterior, *poly.interiors]:
+                coords = np.asarray(ring.coords)
+                starts_list.append(coords[:-1])
+                vecs_list.append(np.diff(coords, axis=0))
+        starts = np.vstack(starts_list)
+        vecs   = np.vstack(vecs_list)
+        seg_geoms = [LineString([s, s + v]) for s, v in zip(starts, vecs)]
+        seg_tree  = STRtree(seg_geoms)
+
+        keep = []
+        for line in lines.geometry:
+            c = np.asarray(line.coords)
+            m_vec  = c[1] - c[0]
+            m_norm = np.linalg.norm(m_vec)
+            ok = True
+            if m_norm > 1e-10:
+                for endpoint in c:
+                    ep = Point(endpoint)
+                    cand = seg_tree.query(ep.buffer(search_radius), predicate='intersects')
+                    if len(cand) == 0:
+                        continue
+                    dists = [seg_geoms[int(j)].distance(ep) for j in cand]
+                    nearest = int(cand[int(np.argmin(dists))])
+                    b_vec  = vecs[nearest]
+                    b_norm = np.linalg.norm(b_vec)
+                    if b_norm < 1e-10:
+                        continue
+                    cos_a = np.clip(np.dot(m_vec, b_vec) / (m_norm * b_norm), -1, 1)
+                    angle = math.degrees(math.acos(cos_a))
+                    if angle < min_boundary_angle or angle > max_angle:
+                        ok = False
+                        break
+            keep.append(ok)
+        return profile.loc[keep].reset_index(drop=True), lines.loc[keep].reset_index(drop=True)
+
+    # ---- setup ----
+
+    axis_geoms = _flatten_lines(axis_lines.geometry)
+    axis_tree  = STRtree(axis_geoms) if axis_geoms else None
+
+    print(f"\n... Starting measurement with {len(fan_angles)} ray(s) per point")
+    print(f"... Fan angles in use: {np.round(fan_angles, 1)}")
+
+    profile_rows, line_rows = [], []
+
+    # ---- main loop ----
+
+    for road_id, axis in tqdm(zip(axis_lines.index, axis_lines.geometry),
+                              total=len(axis_lines), desc="Measuring streets"):
+        if axis is None or axis.length == 0:
+            continue
+
+        for dist in np.arange(0, axis.length, step_size):
+            point = axis.interpolate(dist)
+            if not road_prep.intersects(point):
+                continue
+
+            tangent = _tangent(axis, dist)
+            if tangent is None:
+                continue
+            normal = (-tangent[1], tangent[0])
+
+            # Pick the SMALLEST valid total width across all fan angles
+            best = None
+            for angle in fan_angles:
+                v_left  = _rotate(normal, angle)
+                v_right = (-v_left[0], -v_left[1])
+
+                d_left  = _cast_ray(point, v_left)
+                d_right = _cast_ray(point, v_right)
+
+                if (_ray_crosses_other_axis(point, v_left,  d_left) or
+                    _ray_crosses_other_axis(point, v_right, d_right)):
+                    continue
+
+                total = d_left + d_right
+                if best is None or total < best[0]:
+                    best = (total, d_left, d_right, v_left)
+
+            if best is None or best[0] >= max_valid_width:
+                continue
+
+            total, d_left, d_right, v_left = best
+            p_left  = (point.x + v_left[0] * d_left,  point.y + v_left[1] * d_left)
+            p_right = (point.x - v_left[0] * d_right, point.y - v_left[1] * d_right)
+
+            profile_rows.append({
+                'geometry':      point,
+                'strasse_id':    road_id,
+                'station':       round(dist, 2),
+                'breite_links':  round(d_left, 2),
+                'breite_rechts': round(d_right, 2),
+                'breite_m':      round(total, 2),
+            })
+            line_rows.append({
+                'geometry':   LineString([p_left, p_right]),
+                'strasse_id': road_id,
+                'station':    round(dist, 2),
+                'breite_m':   round(total, 2),
+            })
+
+    profile_gdf = gp.GeoDataFrame(profile_rows, crs=axis_lines.crs)
+    lines_gdf   = gp.GeoDataFrame(line_rows,    crs=axis_lines.crs)
+
+    # ---- optional post-filters ----
+
+    if overlap_threshold > 0 and len(lines_gdf):
+        print("... Applying overlap filter")
+        before = len(lines_gdf)
+        profile_gdf, lines_gdf = _filter_overlap(profile_gdf, lines_gdf)
+        print(f"    removed: {before - len(lines_gdf)}")
+
+    if min_boundary_angle > 0 and len(lines_gdf):
+        print(f"... Applying boundary-angle filter (>= {min_boundary_angle} deg)")
+        before = len(lines_gdf)
+        profile_gdf, lines_gdf = _filter_boundary_angle(profile_gdf, lines_gdf)
+        print(f"    removed: {before - len(lines_gdf)}")
+
+    return profile_gdf, lines_gdf
 
 def detect_lines_in_narrow_passages(
     lines:gp.GeoDataFrame,

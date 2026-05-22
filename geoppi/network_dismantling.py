@@ -19,7 +19,7 @@ import logging
 cs = "EPSG:25832"
 
 ### Load data
-flp_in = Path(r"C:\Git\geoppi\geoppi\examples\data\example_gas_network")
+flp_in = Path(r"Z:\13_Skizzen_Anträge_Projekte\17_VNEP_Gasnetzrückbauplanung_Entwicklung\example_gas_network")
 
 streets = gp.read_file(flp_in / Path(r"ATKIS_DLM50_Straßenachse.gpkg")).to_crs(cs)
 # streets_name = gp.read_file(r"Z:\41_Wärmeplanung_Hessen\06_GIS\ATKIS\Digitales Landschaftsmodell\ATKIS Basis DLM Hessen (shape)\dlm_42002_ax_strasse.shp", encoding ='utf-8').to_crs(cs)

@@ -1,18 +1,17 @@
-import os
-import sys
 import time
+from pathlib import Path
 import geopandas as gp
-import numpy as np  
+import numpy as np
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-from auxFunctions import measure_street_width, detect_lines_in_narrow_passages
+from geoppi import measure_street_width, detect_lines_in_narrow_passages
 
-_input = os.path.join(os.path.dirname(__file__), "..", "data", "exampleStreetwidth", "input")
-_output = os.path.join(os.path.dirname(__file__), "..", "data", "exampleStreetwidth", "output")
-axis_lines = gp.read_file(os.path.join(_input, "strassen_buseck.shp"))
-street_parcels = gp.read_file(os.path.join(_input, "flurstuecke_strassenverkehr_buseck.gpkg"))
-buildings = gp.read_file(os.path.join(_input, "flursteucke_buseck_ohne_straßenverkehr.gpkg"))
-buildings = buildings[buildings.geometry.length >= 1]
+_input = Path(r'data/exampleStreetwidth/input')
+_output = Path(r'data/exampleStreetwidth/output')
+
+axis_lines = gp.read_file(_input / 'strassen_buseck.shp')
+street_parcels = gp.read_file(_input / 'flurstuecke_strassenverkehr_buseck.gpkg')
+buildings = gp.read_file(_input / 'flursteucke_buseck_ohne_straßenverkehr.gpkg')
+
 
 
 print("=" * 60)
@@ -27,7 +26,7 @@ profile_gdf, lines_gdf = measure_street_width(
     step_size=5.0,
     max_range=30.0,
     max_valid_width=25.0, # gesamte breite
-    fan_angles=np.linspace(-15, 15, 7).tolist(),
+    fan_angles=np.linspace(-15, 15, 7).tolist(), # Bsp.: 7 Messlinien im Winkel von -15° bis +15° zur Achse
     overlap_threshold=2,
     min_boundary_angle=70.0,
 )
@@ -37,8 +36,8 @@ t1 = time.time()
 print(f"Dauer: {t1 - t0:.2f}s")
 print(f"Profile-Punkte: {len(profile_gdf)}")
 print(f"Messlinien:     {len(lines_gdf)}")
-profile_gdf.to_file(os.path.join(_output, "width_profile.gpkg"))
-lines_gdf.to_file(os.path.join(_output, "width_messlinien.gpkg"))
+profile_gdf.to_file(_output / 'width_profile.gpkg')
+lines_gdf.to_file(_output / 'width_messlinien.gpkg')
 print()
 
 
@@ -64,5 +63,5 @@ print(f"Dauer: {t1 - t0:.2f}s")
 print(f"Linien mit Engstelle: {result_lines['narrowPassage_m'].notna().sum()} / {len(result_lines)}")
 print(f"Kürzeste Verbindungen: {len(shortest_lines)}")
 result_lines = result_lines.drop(columns=['fid'], errors='ignore')
-result_lines.to_file(os.path.join(_output, "narrow_engstellen.gpkg"))
-shortest_lines.to_file(os.path.join(_output, "narrow_verbindungen.gpkg"))
+result_lines.to_file(_output / 'narrow_engstellen.gpkg')
+shortest_lines.to_file(_output / 'narrow_verbindungen.gpkg')

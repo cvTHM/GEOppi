@@ -1108,7 +1108,7 @@ def detect_lines_in_narrow_passages(
         """
 
         boundary = polygon.boundary
-        if boundary.length == 0:
+        if boundary is None or boundary.is_empty or boundary.length == 0:
             return []
         
         numPoints = int(boundary.length // dist)
@@ -1137,7 +1137,7 @@ def detect_lines_in_narrow_passages(
         otherpts = [pt for j in range(len(all_points)) if j != n for pt in all_points[j]]
         lOthers = len(otherpts)
 
-        if lOthers > 0:
+        if lOthers > 0 and len(pts) > 0:
             idx, _ = nnearest(A = np.array(pts), B = np.array(otherpts), distance = threshDistance, n = nNeighbours)
 
             for nn, p in enumerate(idx):

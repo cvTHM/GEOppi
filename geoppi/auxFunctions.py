@@ -840,7 +840,7 @@ def measure_street_width(
     :param overlap_threshold: integer; if > 0, a measurement line is dropped when it intersects with more than this many other measurement lines (filters chaotic measurements).\n
     :param min_boundary_angle: float; if > 0, a measurement line is dropped if its endpoint hits the street boundary outside [min_boundary_angle, 180 - min_boundary_angle] degrees.\n
 
-    :return: tuple (profile_gdf, lines_gdf) of GeoDataFrames; profile_gdf holds sample points with width attributes, lines_gdf holds the measurement lines.
+    :return: tuple (axis_lines, profile_gdf, lines_gdf) of GeoDataFrames; axis_lines holds original line gdf, supplemented with attribute of narrowest passage found in its course, profile_gdf holds sample points with width attributes, lines_gdf holds the measurement lines.
     """
     if fan_angles is None:
         fan_angles = [0.0]
@@ -851,6 +851,9 @@ def measure_street_width(
     road          = street_parcels.geometry.union_all()
     road_prep     = prep(road)
     road_boundary = road.boundary
+
+    # Create temp copy
+    axis_lines = axis_lines.copy()
 
     # ---- nested helpers ----
 
@@ -1044,7 +1047,10 @@ def measure_street_width(
         profile_gdf, lines_gdf = _filter_boundary_angle(profile_gdf, lines_gdf)
         print(f"    removed: {before - len(lines_gdf)}")
 
-    return profile_gdf, lines_gdf
+    # Transfer results with narrowest passage to original line DataFrame
+    axis_lines["narrowPassage_m"] = profile_gdf.groupby(by = "strasse_id").agg({"breite_m":"min"})
+
+    return axis_lines, profile_gdf, lines_gdf
 
 def detect_lines_in_narrow_passages(
     lines:gp.GeoDataFrame,

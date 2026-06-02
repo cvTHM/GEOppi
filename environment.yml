@@ -103,4 +103,3 @@ dependencies:
       - tqdm==4.67.3
       - tzdata==2026.2
       - urllib3==2.7.0
-prefix: C:\Users\const\miniconda3\envs\env_ppi3

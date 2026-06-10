@@ -127,8 +127,14 @@ width="100%"/><br>
 **Used input data types**
 - Geo-referenced data are taken as inputs and given as outputs in GPKG format (applies to all geometry objects)
 
-## Installation
-You can install **GEOppi** by cloning a branch or copying the compressed branch directory to your local machine and running the enclosed setup file, e.g. in a shell after directing to the target folder:
+Clone the repository or copy the zipped files on your machine and extract them. Create a virtual environment from the enclosed *environment.yml* file by navigating to the folder path in the Python shell and running:
+
+```
+conda env create -f environment.yml -n env_name
+```
+
+with your desired name *env\_name* for the environment.
+You can then install **GEOppi** by running the enclosed setup file in the Python shell after directing to the target folder:
 
 ```
 python -m pip install .

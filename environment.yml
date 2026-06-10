@@ -1,4 +1,4 @@
-name: env_ppi3
+name: env_GEOppi
 channels:
   - conda-forge
   - defaults

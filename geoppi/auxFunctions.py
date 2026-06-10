@@ -1511,6 +1511,13 @@ def geodata_from_geometry(df:gp.GeoDataFrame, typ:str):
         df['geodata'] = df['geodata'].str.lstrip()
         df['geodata'] = df['geodata'].str.replace(' ', ', ')
 
+    elif (typ == "polygon"):
+        coords_list = []
+        for poly in df["geometry"]:            
+            coords = [[x, y] for x, y in poly.exterior.coords]
+            coords_list.append(coords)
+        df["geodata"] = coords_list
+
     def lit(x):
         import ast
         try:

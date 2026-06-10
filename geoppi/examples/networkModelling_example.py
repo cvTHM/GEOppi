@@ -464,3 +464,4 @@ print(f'\n### pmin reached is {pmin_reached} bar. Target value is {pmin_target} 
 ###
 import pandas as pd
 pd.cut(netFeedReflux.res_heat_consumer['t_to_k'], np.arange(tReflux + 273.15 - 2, tReflux + 273.15 + 2, 0.25)).value_counts(normalize = True)
+

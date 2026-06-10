@@ -748,7 +748,7 @@ def network_span_dfs_level_search(
         lines['length_dfs']     = lines.geometry.length
         print('\n### Length attribute ', lengthAttr, ' is not included in provided DataFrame. It is now calculated from the lines geometry. ###')
 
-        # Create networkx graph from line representation
+    # Create networkx graph from line representation
     if sortByAttr is not None:
         if sortMethod.lower() not in ('ascending', 'descending'):
             sortMethod = 'ascending'

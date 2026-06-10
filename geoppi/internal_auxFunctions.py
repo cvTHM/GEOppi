@@ -7,11 +7,135 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import os
+import re
 import matplotlib.animation
+from tqdm import tqdm
 from matplotlib.collections import LineCollection, PathCollection
 from pathlib import Path
 
 from geoppi.customControllers import (ppi_CircPumpMassPthermalCtrl, ppi_CircPumpMassPthermalCtrl_limited, ppi_HeatConsumerSetTempCtrl, ppi_HeatConsumersMinDiffPressureCtrl, ppi_JunctionsMinAbsolutePressureCtrl, ppi_HeatConsumerCOPConversionQdem)
+
+
+def assign_street_name_2_buildings(
+    buildings: gp.GeoDataFrame,
+    parcels: gp.GeoDataFrame,
+    col_street_name_buildings: str = "street_name",
+    col_street_name_parcels: str = "legebeztxt",
+    parcel_id_buildings: str = "parc_id",
+    uniqueID_parcels: str = "oid",
+) -> gp.GeoDataFrame:
+    """
+    Assign street names to buildings without an address.
+
+    For each parcel, buildings without a street name are updated according
+    to the following logic:
+
+    1. If at least one building within the same parcel already has a valid
+       street name, the street name from the nearest addressed building
+       is assigned.
+    2. If no addressed building exists within the parcel, the street name
+       from the parcel itself is assigned.
+
+    :param buildings:
+        GeoDataFrame containing building geometries and address information.
+    :type buildings:
+        geopandas.GeoDataFrame
+
+    :param parcels:
+        GeoDataFrame containing parcel geometries and parcel-level street names.
+    :type parcels:
+        geopandas.GeoDataFrame
+
+    :param col_street_name_buildings:
+        Name of the column containing building street names.
+    :type col_street_name_buildings:
+        str
+
+    :param col_street_name_parcels:
+        Name of the column containing parcel street names.
+    :type col_street_name_parcels:
+        str
+
+    :param parcel_id_buildings:
+        Name of the column linking buildings to parcels.
+    :type parcel_id_buildings:
+        str
+
+    :param uniqueID_parcels:
+        Name of the unique parcel ID column.
+    :type uniqueID_parcels:
+        str
+
+    :return:
+        Updated GeoDataFrame with assigned street names.
+    :rtype:
+        geopandas.GeoDataFrame
+    """
+
+    # Create mapping: parcel ID -> parcel street name
+    parcel_street_map = (
+        parcels.set_index(uniqueID_parcels)[col_street_name_parcels]
+        .apply(extract_street_names)
+        .to_dict()
+    )
+
+    # Group buildings by parcel ID
+    grouped = buildings.groupby(parcel_id_buildings)
+
+    for parcel_id, group in tqdm(grouped, total=len(grouped)):
+
+        # Select buildings with and without street names
+        idx_with = group[group[col_street_name_buildings].notna()].index
+        idx_without = group[group[col_street_name_buildings].isna()].index
+
+        # Skip parcels where all buildings already have addresses
+        if len(idx_without) == 0:
+            continue
+
+        # Case 1:
+        # Assign nearest building street name if addressed buildings exist
+        if len(idx_with) > 0:
+
+            geom_with = buildings.loc[idx_with, "geometry"]
+            geom_without = buildings.loc[idx_without, "geometry"]
+
+            street_names_with = buildings.loc[
+                idx_with,
+                col_street_name_buildings
+            ]
+
+            for idx_wo, geom_wo in zip(idx_without, geom_without):
+
+                # Compute distances to all addressed buildings
+                distances = geom_with.distance(geom_wo)
+
+                # Get nearest addressed building
+                idx_nearest = distances.idxmin()
+
+                # Assign street name from nearest building
+                buildings.at[
+                    idx_wo,
+                    col_street_name_buildings
+                ] = street_names_with.loc[idx_nearest]
+
+        # Case 2:
+        # Assign parcel street name if no addressed buildings exist
+        else:
+
+            parcel_street = parcel_street_map.get(parcel_id)
+
+            buildings.loc[
+                idx_without,
+                col_street_name_buildings
+            ] = parcel_street
+
+    return buildings
+
+def extract_street_names(address_string):
+    """
+    Auxiliary function to extract street name from address string of the form *{Street name} {House number} {Postal code}*
+    """
+    return re.sub(r'^\s+', '', re.search(r'^([^ ]+)\s\d', address_string).group(1)) if isinstance(address_string, str) and re.search(r'^([^ ]+)\s\d', address_string) else address_string
 
 def implement_controllers(
         net,
@@ -843,6 +967,5 @@ def animate_networkGeneration_gdf(
 
         ani = matplotlib.animation.ArtistAnimation(fig=fig, artists=frames, interval=interval)
         ani.save(filename=savePath / Path(filename), writer="pillow", dpi = dpi)
-
 
     return

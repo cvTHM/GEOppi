@@ -1,5 +1,8 @@
 # Changelog for GEOppi
 
+## \[v0.2.1]
+* \[CHANGED] Function *geodata\_from\_geometry* for creating pandapipes-compatible geodata from geometry of GIS data supports polygons
+
 ## \[v0.2.0]
 
 * \[CHANGED] Readme with edited hints for installation

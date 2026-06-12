@@ -664,43 +664,6 @@ def calc_network_filling_volume(
 
     return np.sum((net.pipe['diameter_m'])**2*np.pi/4*(net.pipe['length_km']*1e03))
 
-# Optional:_ Create plot of simultaneity factor
-if __name__ == '__main__':
-
-    # Plot appearance
-    import matplotlib.pyplot as plt
-    xfont = {'fontname': 'Times New Roman', 'fontsize':9}
-
-    # Data
-    n = np.linspace(0, 250, 251)
-    gzf = np.array(list(map(lambda x: simultaneity_DH(x, bottomLim = None), n)))
-
-    # Create plot
-    fig, ax = plt.subplots()
-    fig.set_size_inches(3.22, 2, forward=True)
-    fig.set_dpi(300)
-
-    ax.plot(n, gzf, color = 'gray')
-    
-    ax.set_xlabel(r'No. of buildings $n$', **xfont)
-    ax.set_xlim([0, 250])
-    ax.tick_params(axis='both', which='major', labelsize=8)
-
-    ax.set_ylabel(r'Simultaneity factor $sf$', **xfont)
-
-    ax.grid('major')
-
-    # Create annotation with equation
-    ax.annotate(
-        r'$sf = 0.4497\cdot\frac{0.5512}{1+(\frac{n}{53.84})^{1.763}}$', 
-        xy = (100,0.85),
-        xytext=(100, 0.85), 
-        fontsize = 9,
-        bbox=dict(facecolor='white', alpha=1, edgecolor='black')
-        )
-    
-    # fig.savefig('simultaneityFactor.png', dpi = 'figure', bbox_inches = 'tight')
-
     
 
 def relThermalLossPower_DH(
@@ -746,43 +709,6 @@ def relThermalLoss_DH(
     pThermalLoss = factor if referToInput else factor / (1-factor)    
     
     return pThermalLoss
-
-# Optional:_ Create plot of simultaneity factor
-if __name__ == '__main__':
-
-    # Plot appearance
-    import matplotlib.pyplot as plt
-    xfont = {'fontname': 'Times New Roman', 'fontsize':9}
-
-    # Data
-    ld = np.linspace(0.1, 5, 50)
-    frel = np.array(list(map(lambda x: relThermalLoss_DH(x, referToInput = True), ld)))
-
-    # Create plot
-    fig, ax = plt.subplots()
-    fig.set_size_inches(3.22, 2, forward=True)
-    fig.set_dpi(300)
-
-    ax.plot(ld, frel, color = 'gray')
-    
-    ax.set_xlabel(r'Line density $ld$ ($MWh/m$)', **xfont)
-    ax.set_xlim([0, 5])
-    ax.tick_params(axis='both', which='major', labelsize=8)
-
-    ax.set_ylabel(r'Rel. thermal loss $f_{rel,loss}$', **xfont)
-
-    ax.grid('major')
-
-    # Create annotation with equation
-    ax.annotate(
-        r'$f_{rel,loss} = -0.0938\cdot ln(ld)+0.1693$',
-        xy = (0.8, 0.35),
-        xytext=(0.8, 0.3), 
-        fontsize = 8.5,
-        bbox=dict(facecolor='white', alpha=1, edgecolor='black')
-        )
-    
-    fig.savefig('relThermalLoss.png', dpi = 'figure', bbox_inches = 'tight')
 
 
 def plot_Gs(G:nx.graph, 
@@ -969,3 +895,79 @@ def animate_networkGeneration_gdf(
         ani.save(filename=savePath / Path(filename), writer="pillow", dpi = dpi)
 
     return
+
+
+# Optional:_ Create plot of simultaneity factor
+if __name__ == '__main__':
+
+    # Plot appearance
+    import matplotlib.pyplot as plt
+    xfont = {'fontname': 'Times New Roman', 'fontsize':9}
+
+    # Data
+    n = np.linspace(0, 250, 251)
+    gzf = np.array(list(map(lambda x: simultaneity_DH(x, bottomLim = None), n)))
+
+    # Create plot
+    fig, ax = plt.subplots()
+    fig.set_size_inches(3.22, 2, forward=True)
+    fig.set_dpi(300)
+
+    ax.plot(n, gzf, color = 'gray')
+    
+    ax.set_xlabel(r'No. of buildings $n$', **xfont)
+    ax.set_xlim([0, 250])
+    ax.tick_params(axis='both', which='major', labelsize=8)
+
+    ax.set_ylabel(r'Simultaneity factor $sf$', **xfont)
+
+    ax.grid('major')
+
+    # Create annotation with equation
+    ax.annotate(
+        r'$sf = 0.4497\cdot\frac{0.5512}{1+(\frac{n}{53.84})^{1.763}}$', 
+        xy = (100,0.85),
+        xytext=(100, 0.85), 
+        fontsize = 9,
+        bbox=dict(facecolor='white', alpha=1, edgecolor='black')
+        )
+    
+    fig.savefig('simultaneityFactor.png', dpi = 'figure', bbox_inches = 'tight')
+
+# Optional:_ Create plot of relative thermal loss factor
+if __name__ == '__main__':
+
+    # Plot appearance
+    import matplotlib.pyplot as plt
+    xfont = {'fontname': 'Times New Roman', 'fontsize':9}
+
+    # Data
+    ld = np.linspace(0.1, 5, 50)
+    frel = np.array(list(map(lambda x: relThermalLoss_DH(x, referToInput = True), ld)))
+
+    # Create plot
+    fig, ax = plt.subplots()
+    fig.set_size_inches(3.22, 2, forward=True)
+    fig.set_dpi(300)
+
+    ax.plot(ld, frel, color = 'gray')
+    
+    ax.set_xlabel(r'Line density $ld$ ($MWh/m$)', **xfont)
+    ax.set_xlim([0, 5])
+    ax.tick_params(axis='both', which='major', labelsize=8)
+
+    ax.set_ylabel(r'Rel. thermal loss $f_{rel,loss}$', **xfont)
+
+    ax.grid('major')
+
+    # Create annotation with equation
+    ax.annotate(
+        r'$f_{rel,loss} = -0.0938\cdot ln(ld)+0.1693$',
+        xy = (0.8, 0.35),
+        xytext=(0.8, 0.3), 
+        fontsize = 8.5,
+        bbox=dict(facecolor='white', alpha=1, edgecolor='black')
+        )
+    
+    fig.savefig('relThermalLoss.png', dpi = 'figure', bbox_inches = 'tight')
+

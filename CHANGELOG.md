@@ -2,6 +2,8 @@
 
 ## \[v0.2.1]
 * \[CHANGED] Function *geodata\_from\_geometry* for creating pandapipes-compatible geodata from geometry of GIS data supports polygons
+* \[CHANGED] Deleted duplicate function definitions in *aux\_functions.py*
+* \[CHANGED] Updated setup.py and init file with version number
 
 ## \[v0.2.0]
 

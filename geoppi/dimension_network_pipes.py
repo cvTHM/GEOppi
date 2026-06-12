@@ -1,6 +1,7 @@
 import pandapipes as ppi
 import numpy as np
 import pandas as pd
+import logging
 
 from geoppi.auxFunctions import (cycleEdges, get_next_higher_value, func_nikuradse, func_swameejain)
 
@@ -123,19 +124,19 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
 
     ### Plausbility checks
     if networkType not in ('KMR', '5GDHC'):
-        print('\n### Choose proper "networkType". Either "KMR" or "5GDHC" are implemented types. Aborting... ###')
+        logging.warning('\n### Choose proper "networkType". Either "KMR" or "5GDHC" are implemented types. Aborting... ###')
         return net
     
     if frictionModel not in ('colebrook', 'swamee-jain', 'nikuradse'):
-        print('\n### Choose proper frictionModel for hydraulic caculations. Implemented values are "colebrook", "swamee-jain" and "nikuradse". Aborting... ###')
+        logging.warning('\n### Choose proper frictionModel for hydraulic caculations. Implemented values are "colebrook", "swamee-jain" and "nikuradse". Aborting... ###')
         return net
     
     if any([nom not in dictNominalInnerDiameter['distributionPipes'].keys() for nom in subsetDistribution]):
-        print('\n### Selected subset of nominal widths for distribution pipes could not be found in provided dictionary of nominal widths. Aborting... ###')
+        logging.warning('\n### Selected subset of nominal widths for distribution pipes could not be found in provided dictionary of nominal widths. Aborting... ###')
         return net
 
     if any([nom not in dictNominalInnerDiameter['connectionPipes'].keys() for nom in subsetConnection]):
-        print('\n### Selected subset of nominal widths for house connection pipes could not be found in provided dictionary of nominal widths. Aborting... ###')
+        logging.warning('\n### Selected subset of nominal widths for house connection pipes could not be found in provided dictionary of nominal widths. Aborting... ###')
         return net
     
     ### Preparations
@@ -740,7 +741,7 @@ def check_for_cycle(
 
 def update_ppi_results(
         net, # pandapipes network
-        user_pf_options:dict = {'mode':'hydraulics', 'friction_model':'swamee-jain'},
+        user_pf_options:dict = None,
         respectHeight:bool = False,
         fluidProperties:dict = {'rho':1000, 'cp':4190, 'nu':0.413e-06},
         elongationFactorPipes:float = 1,
@@ -750,7 +751,7 @@ def update_ppi_results(
     """
     Function that updates simulation results for pandapipes network.\n    
     A simulation with the currently entered charatceristics of the network is performed. Results are transferred to the network components' DataFrames.\n 
-    :param user_pf_options: dictionary denoting the user-defined pipeflow options which shall be transfered to the pipeflow-command (key frictionModel: denotes the chosen friction model for hydraulic calculations. Either "colebrook", "swamee-jain", "nikuradse" are implemented. Key mode: Calculation mode chosen for simulations. Can either be "hydraulics" or "all".)\n
+    :param user_pf_options: dictionary denoting the user-defined pipeflow options which shall be transfered to the pipeflow-command (key frictionModel: denotes the chosen friction model for hydraulic calculations. Either "colebrook", "swamee-jain", "nikuradse" are implemented. Key mode: Calculation mode chosen for simulations. Can either be "hydraulics" or "all".) Defaults to net.user_pf_options if None.\n
     :param respectHeight: denotes a switch whether geodetic height differences between junctions shall be considered in the simulation. Otherwise, all heights are set to zero.\n
     :param fluidProperties: denotes a dictionary with information on used fluid properties in the network (density "rho", specific heat capacity "cp" and kinematic viscosity "nu").\n
     :param elongationFactorPipes: is a value which is used for temporary elongation of the pipes' length attribute. This is used to consider the influence of armatures etc. on the pressure loss which is modelled as an altered pipe length.\n
@@ -759,13 +760,17 @@ def update_ppi_results(
     """
 
     ### Plausibility checks for user pipeflow options
-    if user_pf_options['friction_model'] not in ('colebrook', 'swamee-jain', 'nikuradse'):
-        print('\n### Choose proper frictionModel for hydraulic calculations. Implemented values are "colebrook", "swamee-jain" and "nikuradse". Aborting... ###')
-        return net
-    
-    if user_pf_options['mode'] not in ('hydraulics', 'all', 'sequential', 'bidirectional'):
-        print('\n### Choose proper calculation mode for pandapipes simulation. Either "hydraulics" for only hydraulic calculation or "all" for subsequent hydraulic and thermalcalculation is implemented. ###')
-        return net
+    if user_pf_options is None:
+        user_pf_options = net.user_pf_options
+
+    else:        
+        if user_pf_options['friction_model'] not in ('colebrook', 'swamee-jain', 'nikuradse'):
+            logging.warning('\n### Choose proper frictionModel for hydraulic calculations. Implemented values are "colebrook", "swamee-jain" and "nikuradse". Aborting... ###')
+            return net
+        
+        if user_pf_options['mode'] not in ('hydraulics', 'all', 'sequential', 'bidirectional'):
+            logging.warning('\n### Choose proper calculation mode for pandapipes simulation. Either "hydraulics" for only hydraulic calculation or "all" for subsequent hydraulic and thermalcalculation is implemented. ###')
+            return net
     
     # Store user pf options and later restore them
     orig_pf_options = net.user_pf_options.copy()    

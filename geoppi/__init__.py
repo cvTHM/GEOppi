@@ -2,7 +2,7 @@
 GEOppi - Conversion of GEO-referenced Piping data into calculable heating networks
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.1"
 
 # Importing key components
 from .auxFunctions import *

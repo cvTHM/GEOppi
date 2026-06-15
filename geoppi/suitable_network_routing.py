@@ -184,6 +184,135 @@ def sum_heat_demands_to_closest_supplier(
 
     return edgelist_out
 
+
+def count_downstream_buildings(
+        lines:gp.GeoDataFrame,
+        buildings:gp.GeoDataFrame,
+        producers:gp.GeoDataFrame,
+        output_attr:str = 'n_buildings_downstream',
+        weight:str = 'length',
+        line_id:str = 'unique_ID_lines',
+        max_distance:float = 50.0,
+    ):
+    """
+    Calculate the number of buildings downstream of each line segment in a radial network.
+
+    The function uses the existing shortest-path utilities in GEOppi to create a producer-to-consumer
+    orientation from the supplied line network. Producer locations are treated as sources and buildings
+    as terminal consumers. Every line segment receives a cumulative count of buildings in its downstream
+    subtree, including the buildings directly attached to that segment itself.
+
+    :param lines: GeoDataFrame of line objects representing the distribution network.
+    :param buildings: GeoDataFrame of building polygons to be counted downstream of each line.
+    :param producers: GeoDataFrame of producer/starting-point geometries used as graph sources.
+    :param output_attr: str denoting the output column name for downstream building counts.
+    :param weight: str denoting the edge attribute used for shortest-path weighting.
+    :param line_id: str denoting the unique line identifier in *lines*.
+    :param max_distance: float denoting the search radius for attaching buildings to the nearest line.
+
+    :returns: GeoDataFrame of line objects with the added downstream-building count attribute.
+    """
+
+    if lines.crs != buildings.crs:
+        buildings = buildings.to_crs(lines.crs)
+
+    if lines.crs != producers.crs:
+        producers = producers.to_crs(lines.crs)
+
+    if line_id not in lines.columns:
+        lines = lines.copy()
+        lines[line_id] = np.arange(len(lines), dtype=int)
+
+    # Attach each building to its nearest line segment.
+    buildings_attached = gp.sjoin_nearest(
+        buildings[["geometry"]].copy(),
+        lines[[line_id, "geometry"]].copy(),
+        how="left",
+        distance_col="distance_to_line",
+    )
+
+    buildings_attached = buildings_attached.rename(columns={line_id: line_id})
+    buildings_attached = buildings_attached[buildings_attached[line_id].notna()].copy()
+
+    buildings_per_line = (
+        buildings_attached.groupby(line_id, dropna=False)
+        .size()
+        .rename("n_buildings_attached")
+        .astype(int)
+    )
+
+    if buildings_per_line.empty:
+        lines = lines.copy()
+        lines[output_attr] = 0
+        return lines
+
+    # Build a simple primal graph from the line GeoDataFrame.
+    G = gdf_to_nx(lines, approach="primal", multigraph=False, directed=False)
+
+    # Use the existing shortest-path machinery to orient the network from producers to consumers.
+    producer_coords = np.array([tuple(point) for point in zip(producers.geometry.x, producers.geometry.y)])
+    graph_nodes = np.asarray(G.nodes)
+
+    producer_nodes = []
+    for point in producer_coords:
+        nearest = closest_point(points=graph_nodes, target=point, threshDistance=max_distance)
+        if len(nearest) > 0:
+            producer_nodes.extend([tuple(node) for node in nearest])
+
+    producer_nodes = list(dict.fromkeys(producer_nodes))
+
+    if not producer_nodes:
+        lines = lines.copy()
+        lines[output_attr] = 0
+        return lines
+
+    path_map = nx.multi_source_dijkstra_path(G, sources=producer_nodes, weight=weight)
+
+    # Create a directed production-to-consumption tree.
+    D = nx.DiGraph()
+    edge_line_map = {}
+
+    for u, v, data in G.edges(data=True):
+        edge_line_map[(u, v)] = data.get(line_id, None)
+
+    for target, path in path_map.items():
+        if len(path) < 2:
+            continue
+        parent = path[-2]
+        child = path[-1]
+        D.add_edge(parent, child)
+        if (parent, child) in edge_line_map:
+            D[parent][child][line_id] = edge_line_map[(parent, child)]
+
+    # Propagate consumer counts from leaves towards the producer side.
+    downstream_counts = {node: 0 for node in D.nodes}
+
+    for node in reversed(list(nx.topological_sort(D))):
+        edge_count = 0
+        for child in D.successors(node):
+            edge_count += downstream_counts[child]
+
+        line_id_here = None
+        for parent, child, data in D.in_edges(node, data=True):
+            line_id_here = data.get(line_id, None)
+            break
+
+        count_here = int(buildings_per_line.get(line_id_here, 0)) if line_id_here is not None else 0
+        downstream_counts[node] = count_here + edge_count
+
+    lines_out = lines.copy()
+    lines_out[output_attr] = 0
+
+    for parent, child, data in D.edges(data=True):
+        line_id_here = data.get(line_id)
+        if line_id_here is not None:
+            lines_out.loc[lines_out[line_id] == line_id_here, output_attr] = int(downstream_counts.get(child, 0))
+
+    # Ensure every line has a sensible default value.
+    lines_out[output_attr] = lines_out[output_attr].fillna(0).astype(int)
+
+    return lines_out
+
 ### BFS ###
 def network_span_bfs(
         lines:gp.GeoDataFrame,

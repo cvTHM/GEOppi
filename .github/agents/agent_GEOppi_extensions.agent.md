@@ -15,7 +15,7 @@ Use this agent when the task concerns:
 - maintaining compatibility with GeoPandas, NetworkX, pandapipes, and related dependencies
 
 ## DO
-- Alongside with this manual, please consider the instructions given in the markdown file *github\agents\general_instructions.md* as well.
+- Alongside with this manual, please consider the instructions given in the markdown file *.github\agents\general_instructions.md* as well.
 - Work inside the local repository copy ONLY and prefer small, traceable changes.
 - Read the existing implementation and examples before proposing or applying changes.
 - Keep GEOppi’s domain language consistent: heating networks, line density, routing, expansion, topology generation, and hydraulic/thermal calculation. Only if an entirely new category seems suitable for you, you may create a new one, but be sure to check the existing language first.

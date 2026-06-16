@@ -7,6 +7,7 @@ import numpy as np
 import networkx as nx
 
 from geoppi.auxFunctions import (closest_point, sort_with_permutation, gdf_to_nx, nx_to_gdf, )
+from geoppi.line_density_calculation import closest_lines_to_polygons
 
 ### Functions for analysis of shortest path lengths between specified sets of start- and end nodes and summed weights
 def shortest_paths_pathweights(
@@ -192,6 +193,8 @@ def count_downstream_buildings(
         output_attr:str = 'n_buildings_downstream',
         weight:str = 'length',
         line_id:str = 'unique_ID_lines',
+        building_id:str = 'unique_ID_polys',
+        dict_polyID_lineID:dict = None,
         max_distance:float = 50.0,
     ):
     """
@@ -208,6 +211,8 @@ def count_downstream_buildings(
     :param output_attr: str denoting the output column name for downstream building counts.
     :param weight: str denoting the edge attribute used for shortest-path weighting.
     :param line_id: str denoting the unique line identifier in *lines*.
+    :param building_id: str denoting the unique building identifier in *buildings*.
+    :param dict_polyID_lineID: optional dictionary mapping building IDs to line IDs. If provided, this mapping is used instead of nearest-line search.
     :param max_distance: float denoting the search radius for attaching buildings to the nearest line.
 
     :returns: GeoDataFrame of line objects with the added downstream-building count attribute.
@@ -219,37 +224,59 @@ def count_downstream_buildings(
     if lines.crs != producers.crs:
         producers = producers.to_crs(lines.crs)
 
+    lines = lines.copy()
     if line_id not in lines.columns:
-        lines = lines.copy()
         lines[line_id] = np.arange(len(lines), dtype=int)
 
-    # Attach each building to its nearest line segment.
-    buildings_attached = gp.sjoin_nearest(
-        buildings[["geometry"]].copy(),
-        lines[[line_id, "geometry"]].copy(),
-        how="left",
-        distance_col="distance_to_line",
-    )
+    # Ensure the network graph conversion receives only LineString geometries.
+    if lines.geometry.geom_type.isin(['MultiLineString']).any():
+        lines = lines.explode(index_parts=False).reset_index(drop=True)
 
-    buildings_attached = buildings_attached.rename(columns={line_id: line_id})
-    buildings_attached = buildings_attached[buildings_attached[line_id].notna()].copy()
+    buildings = buildings.copy()
+    if building_id not in buildings.columns:
+        buildings[building_id] = np.arange(len(buildings), dtype=int)
+
+    if dict_polyID_lineID is not None:
+        buildings_attached = buildings[[building_id]].copy()
+        buildings_attached[line_id] = buildings_attached[building_id].map(dict_polyID_lineID)
+        buildings_attached['distance_to_line'] = np.nan
+        buildings_attached = buildings_attached[buildings_attached[line_id].notna()].copy()
+    else:
+        line_subset = lines[[line_id, 'geometry']].copy()
+        buildings_subset = buildings[[building_id, 'geometry']].copy()
+
+        buildings_attached = closest_lines_to_polygons(
+            polygons=buildings_subset,
+            lines=line_subset,
+            maxDistances=max_distance,
+        )
+
+        if 'nearestline' in buildings_attached.columns:
+            buildings_attached = buildings_attached.rename(columns={'nearestline': line_id, 'distance': 'distance_to_line'})
+        else:
+            buildings_attached = buildings_attached.rename(columns={line_id: line_id, 'distance': 'distance_to_line'})
+
+        # Convert line index from closest_lines_to_polygons to actual line unique IDs
+        dict_idx_to_id = dict(zip(list(line_subset.index), list(line_subset[line_id])))
+        buildings_attached[line_id] = buildings_attached[line_id].apply(
+            lambda x: dict_idx_to_id[x] if x in dict_idx_to_id else np.nan
+        )
+        buildings_attached = buildings_attached[buildings_attached[line_id].notna()].copy()
 
     buildings_per_line = (
         buildings_attached.groupby(line_id, dropna=False)
         .size()
-        .rename("n_buildings_attached")
+        .rename('n_buildings_attached')
         .astype(int)
     )
 
     if buildings_per_line.empty:
-        lines = lines.copy()
-        lines[output_attr] = 0
-        return lines
+        lines_out = lines.copy()
+        lines_out[output_attr] = 0
+        return lines_out
 
-    # Build a simple primal graph from the line GeoDataFrame.
-    G = gdf_to_nx(lines, approach="primal", multigraph=False, directed=False)
+    G = gdf_to_nx(lines, approach='primal', multigraph=False, directed=False)
 
-    # Use the existing shortest-path machinery to orient the network from producers to consumers.
     producer_coords = np.array([tuple(point) for point in zip(producers.geometry.x, producers.geometry.y)])
     graph_nodes = np.asarray(G.nodes)
 
@@ -257,18 +284,17 @@ def count_downstream_buildings(
     for point in producer_coords:
         nearest = closest_point(points=graph_nodes, target=point, threshDistance=max_distance)
         if len(nearest) > 0:
-            producer_nodes.extend([tuple(node) for node in nearest])
+            producer_nodes.append(tuple(nearest))
 
     producer_nodes = list(dict.fromkeys(producer_nodes))
 
     if not producer_nodes:
-        lines = lines.copy()
-        lines[output_attr] = 0
-        return lines
+        lines_out = lines.copy()
+        lines_out[output_attr] = 0
+        return lines_out
 
     path_map = nx.multi_source_dijkstra_path(G, sources=producer_nodes, weight=weight)
 
-    # Create a directed production-to-consumption tree.
     D = nx.DiGraph()
     edge_line_map = {}
 
@@ -284,7 +310,6 @@ def count_downstream_buildings(
         if (parent, child) in edge_line_map:
             D[parent][child][line_id] = edge_line_map[(parent, child)]
 
-    # Propagate consumer counts from leaves towards the producer side.
     downstream_counts = {node: 0 for node in D.nodes}
 
     for node in reversed(list(nx.topological_sort(D))):
@@ -308,7 +333,6 @@ def count_downstream_buildings(
         if line_id_here is not None:
             lines_out.loc[lines_out[line_id] == line_id_here, output_attr] = int(downstream_counts.get(child, 0))
 
-    # Ensure every line has a sensible default value.
     lines_out[output_attr] = lines_out[output_attr].fillna(0).astype(int)
 
     return lines_out

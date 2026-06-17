@@ -4,7 +4,6 @@ import numpy as np
 from pathlib import Path
 import geoppi
 from geoppi.create_network_topology import createUniqueJunctions
-from geoppi.line_density_calculation import closest_lines_to_polygons
 
 
 DATA_DIR = Path(__file__).resolve().parent / "data" / "exampleNetwork"
@@ -24,50 +23,47 @@ producers = producers.head(1).reset_index(drop=True)
 lines["unique_ID_lines"] = np.arange(len(lines), dtype=int)
 buildings["unique_ID_polys"] = np.arange(len(buildings), dtype=int)
 
-# %% Example 1: count downstream buildings by matching building boundaries to nearest line segments
+# %% Example 1: count downstream buildings for a single producer using an attribute sum per producer
 
-lines_downstream = geoppi.count_downstream_buildings(
+# Use only the first producer for this variant.
+producer_single = producers.head(1).reset_index(drop=True)
+producer_attributes_single = {producer_single.index[0]: 1}
+
+lines_downstream_single = geoppi.count_downstream_buildings(
     lines=lines,
     buildings=buildings,
-    producers=producers,
-    output_attr="n_buildings_downstream",
+    producers=producer_single,
+    output_attr="n_buildings_downstream_single",
     weight="length",
     line_id="unique_ID_lines",
     building_id="unique_ID_polys",
+    dict_producer_attrs=producer_attributes_single,
     max_distance=100.0,
 )
 
-print("Downstream building counts (nearest boundary matching):")
-print(lines_downstream[["unique_ID_lines", "n_buildings_downstream"]].head(10))
+print("Downstream building counts for single producer:")
+print(lines_downstream_single[["unique_ID_lines", "n_buildings_downstream_single"]].head(10))
 
-lines_downstream.to_file(DATA_DIR / "lines_downstream_buildings.gpkg")
+lines_downstream_single.to_file(DATA_DIR / "lines_downstream_buildings_single.gpkg")
 
-# %% Example 2: precompute a matching dictionary from building IDs to line IDs
-buildings_matched = closest_lines_to_polygons(
-    polygons=buildings[["unique_ID_polys", "geometry"]].copy(),
-    lines=lines[["unique_ID_lines", "geometry"]].copy(),
-    maxDistances=100.0,
-)
+# %% Example 2: count downstream buildings for both producers with a custom producer attribute mapping
+producer_attributes_both = {idx: 1 for idx in producers.index}
 
-buildings_matched = buildings_matched.rename(columns={"nearestline": "nearest_line_index"})
-dict_building2line = {
-    int(row["unique_ID_polys"]): int(lines.loc[row["nearest_line_index"], "unique_ID_lines"])
-    for _, row in buildings_matched.dropna(subset=["nearest_line_index"]).iterrows()
-}
-
-lines_downstream_dict = geoppi.count_downstream_buildings(
+lines_downstream_both = geoppi.count_downstream_buildings(
     lines=lines,
     buildings=buildings,
     producers=producers,
-    output_attr="n_buildings_downstream_dict",
+    output_attr="n_buildings_downstream_both",
     weight="length",
     line_id="unique_ID_lines",
     building_id="unique_ID_polys",
-    dict_polyID_lineID=dict_building2line,
+    dict_producer_attrs=producer_attributes_both,
     max_distance=100.0,
 )
 
-print("Downstream building counts (precomputed ID mapping):")
-print(lines_downstream_dict[["unique_ID_lines", "n_buildings_downstream_dict"]].head(10))
+print("Downstream building counts for both producers:")
+print(lines_downstream_both[["unique_ID_lines", "n_buildings_downstream_both"]].head(10))
+
+lines_downstream_both.to_file(DATA_DIR / "lines_downstream_buildings_both.gpkg")
 
 

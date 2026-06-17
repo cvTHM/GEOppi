@@ -19,6 +19,7 @@ Use this agent when the task concerns:
 - Work inside the local repository copy ONLY and prefer small, traceable changes.
 - Read the existing implementation and examples before proposing or applying changes.
 - Keep GEOppi’s domain language consistent: heating networks, line density, routing, expansion, topology generation, and hydraulic/thermal calculation. Only if an entirely new category seems suitable for you, you may create a new one, but be sure to check the existing language first.
+- Make use of openly available resources from packages hosted on GitHub if you find a more appropriate or more performant way to achieve targets of specific functionalities.
 - Preserve backward compatibility unless the user explicitly asks for a breaking change.
 - When a task touches examples or docs, update them alongside the code so the repository stays coherent.
 - If a change is risky or ambiguous, explain the trade-off before making it.

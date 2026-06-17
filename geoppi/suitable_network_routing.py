@@ -26,46 +26,23 @@ def shortest_paths_pathweights(
     :return: two dictionaries with indicators of end nodes as keys and 1) paths (list of visited nodes) as values and 2) path lengths
     """
 
-    # Plausbility checks
+    # Plausibility checks
     if startNodes is None:
         startNodes = list(G.nodes())
 
     if endNodes is None:
         endNodes = list(G.nodes())
 
-    # Initializations
-    paths = []
-    lengths = []
+    if len(startNodes) == 1:
+        source = startNodes[0]
+        path = nx.single_source_dijkstra_path(G, source=source, weight=weight)
+        length = nx.single_source_dijkstra_path_length(G, source=source, weight=weight)
+    else:
+        path = nx.multi_source_dijkstra_path(G, sources=startNodes, weight=weight)
+        length = nx.multi_source_dijkstra_path_length(G, sources=startNodes, weight=weight)
 
-    # Extract all paths from start nodes to specified end nodes
-    ## Store dictionaries for all start nodes in list
-    for n in startNodes:
-        path = dict(nx.single_source_all_shortest_paths(G = G, source = n, weight = weight))
-        length = dict(nx.shortest_path_length(G = G, source = n, weight = weight))
-
-        path_new = {k:v for k,v in path.items() if k in endNodes}
-        length_new = {k:v for k,v in length.items() if k in endNodes}
-
-        # Cut paths to those ending at the end nodes
-        paths.append(path_new)
-        lengths.append(length_new)
-
-    # Initialize dictionaries for shotrets paths and lengths
-    alleEndNodes = set().union(*(d.keys() for d in lengths))
-    shortestLength = {}
-    shortestPath = {}
-
-    for key in alleEndNodes:
-        min_len = float('inf')
-        min_idx = -1
-
-        for i, d in enumerate(lengths):
-            if key in d and d[key] < min_len:
-                min_len = d[key]
-                min_idx = i
-            if min_idx >= 0:
-                shortestLength[key] = min_len
-                shortestPath[key] = paths[min_idx][key]
+    shortestPath = {k: path[k] for k in endNodes if k in path}
+    shortestLength = {k: length[k] for k in endNodes if k in length}
 
     return shortestPath, shortestLength
 
@@ -86,12 +63,15 @@ def sum_attrs_along_shortest_paths(
     :param endNodes: list-like denoting spcified end nodes in graph for path definition, defaults to None (all nodes in graph)\n
     :param weight: str denoting edge attribute for weights of path lengths, defaults to None\n
     :param output_attr: str denoting the desired output attribute name on graph edges with summed attributes, defaults to None\n
-    :param dictAttrsEndNodes: dict containing end node indicators as keys and attributes as values. These attr8ibutes are summed along the edges of the shortest paths between the end nodes and the start nodes., defaults to None\n
+    :param dictAttrsEndNodes: dict containing end node indicators as keys and attributes as values. These attributes are summed along the edges of the shortest paths between the end nodes and the start nodes., defaults to None\n
     :return: networkx graph object G with newly created edge attributes and dict containing edge attributes (values of dictionary) for edges with unique key (keys of dictionary).\n
     """
 
     # Initializations
     outAttr_weight = 'sum_' if output_attr is None else output_attr
+
+    # Initialize output attribute on all edges to avoid KeyErrors
+    nx.set_edge_attributes(G, 0, name=outAttr_weight)
 
     # Check if G is multigraph object and may contain edge keys
     multi = True if isinstance(G,  (nx.MultiGraph, nx.MultiDiGraph)) else False
@@ -99,34 +79,25 @@ def sum_attrs_along_shortest_paths(
     # Calculate shortest path between each end node and the closest starting node and respective shortest path weights
     shortestPath, _ = shortest_paths_pathweights(G = G, startNodes = startNodes, endNodes = endNodes, weight = weight)
 
-    if multi:  # mulitgraph object, edge keys for parallel edges may be present
+    if multi:  # multigraph object, edge keys for parallel edges may be present
         for k, path in shortestPath.items():
-            for u, v in zip(path[0][:-1], path[0][1:]):
+            for u, v in zip(path[:-1], path[1:]):
+                edges = G[u][v]  # -> All edges between nodes u and v
 
-                edges = G[u][v] # -> All edges betwen nodes u and v
-
-                # Address possible parallel edges
                 min_key, _ = min(edges.items(), key=lambda item: item[1].get(weight, float('inf')))
-
                 G[u][v][min_key][outAttr_weight] += dictAttrsEndNodes[k]
 
-        # Initialize final output dictionary for matching of line ID and summed Attribute (summed weight)
         edge_attr_dict = {}
         for u, v, k, attr in G.edges(keys=True, data=True):
             edge_attr_dict[k] = attr.get(outAttr_weight)
-
     else:
         for k, path in shortestPath.items():
-            for u, v in zip(path[0][:-1], path[0][1:]):
-
-                edges = G[u][v] # -> All edges betwen nodes u and v
-
+            for u, v in zip(path[:-1], path[1:]):
                 G[u][v][outAttr_weight] += dictAttrsEndNodes[k]
 
-        # Initialize final output dictionary for matching of line ID and summed Attribute (summed weight)
         edge_attr_dict = {}
         for u, v, attr in G.edges(data=True):
-            edge_attr_dict[(u,v)] = attr.get(outAttr_weight)
+            edge_attr_dict[(u, v)] = attr.get(outAttr_weight)
 
     return G, edge_attr_dict
 
@@ -195,27 +166,29 @@ def count_downstream_buildings(
         line_id:str = 'unique_ID_lines',
         building_id:str = 'unique_ID_polys',
         dict_polyID_lineID:dict = None,
+        dict_producer_attrs:dict = None,
         max_distance:float = 50.0,
     ):
     """
     Calculate the number of buildings downstream of each line segment in a radial network.
 
-    The function uses the existing shortest-path utilities in GEOppi to create a producer-to-consumer
-    orientation from the supplied line network. Producer locations are treated as sources and buildings
-    as terminal consumers. Every line segment receives a cumulative count of buildings in its downstream
-    subtree, including the buildings directly attached to that segment itself.
+    The function uses shortest-path utilities in GEOppi to determine paths from buildings to producers.
+    Buildings are attached to nearest line segments and then aggregated along the shortest path to the
+    closest producer node. Optionally, a dictionary of producer attributes can be supplied to weight the
+    aggregation by producer-specific values.
 
     :param lines: GeoDataFrame of line objects representing the distribution network.
     :param buildings: GeoDataFrame of building polygons to be counted downstream of each line.
     :param producers: GeoDataFrame of producer/starting-point geometries used as graph sources.
-    :param output_attr: str denoting the output column name for downstream building counts.
+    :param output_attr: str denoting the output column name for downstream building counts or path sums.
     :param weight: str denoting the edge attribute used for shortest-path weighting.
     :param line_id: str denoting the unique line identifier in *lines*.
     :param building_id: str denoting the unique building identifier in *buildings*.
     :param dict_polyID_lineID: optional dictionary mapping building IDs to line IDs. If provided, this mapping is used instead of nearest-line search.
+    :param dict_producer_attrs: optional dictionary mapping producers to a scalar value that shall be summed along the shortest path from each building to its producer. Keys may be producer index values or producer graph node tuples.
     :param max_distance: float denoting the search radius for attaching buildings to the nearest line.
 
-    :returns: GeoDataFrame of line objects with the added downstream-building count attribute.
+    :returns: GeoDataFrame of line objects with the added downstream-building count or summed producer attribute.
     """
 
     if lines.crs != buildings.crs:
@@ -281,10 +254,13 @@ def count_downstream_buildings(
     graph_nodes = np.asarray(G.nodes)
 
     producer_nodes = []
-    for point in producer_coords:
+    producer_idx_to_node = {}
+    for idx, point in zip(producers.index, producer_coords):
         nearest = closest_point(points=graph_nodes, target=point, threshDistance=max_distance)
         if len(nearest) > 0:
-            producer_nodes.append(tuple(nearest))
+            producer_node = tuple(nearest)
+            producer_nodes.append(producer_node)
+            producer_idx_to_node[idx] = producer_node
 
     producer_nodes = list(dict.fromkeys(producer_nodes))
 
@@ -293,45 +269,75 @@ def count_downstream_buildings(
         lines_out[output_attr] = 0
         return lines_out
 
-    path_map = nx.multi_source_dijkstra_path(G, sources=producer_nodes, weight=weight)
+    line_endpoints = {
+        data.get(line_id): (u, v)
+        for u, v, data in G.edges(data=True)
+        if data.get(line_id) is not None
+    }
 
-    D = nx.DiGraph()
-    edge_line_map = {}
-
-    for u, v, data in G.edges(data=True):
-        edge_line_map[(u, v)] = data.get(line_id, None)
-
-    for target, path in path_map.items():
-        if len(path) < 2:
+    # Determine the line endpoint that represents the building-side node for each attached line.
+    lengths = nx.multi_source_dijkstra_path_length(G, sources=producer_nodes, weight=weight)
+    node_building_counts = {}
+    for line_idx, count in buildings_per_line.items():
+        endpoints = line_endpoints.get(line_idx)
+        if endpoints is None:
             continue
-        parent = path[-2]
-        child = path[-1]
-        D.add_edge(parent, child)
-        if (parent, child) in edge_line_map:
-            D[parent][child][line_id] = edge_line_map[(parent, child)]
 
-    downstream_counts = {node: 0 for node in D.nodes}
+        u, v = endpoints
+        dist_u = lengths.get(u, float('inf'))
+        dist_v = lengths.get(v, float('inf'))
+        if dist_u == float('inf') and dist_v == float('inf'):
+            continue
 
-    for node in reversed(list(nx.topological_sort(D))):
-        edge_count = 0
-        for child in D.successors(node):
-            edge_count += downstream_counts[child]
+        building_node = v if dist_v >= dist_u else u
+        node_building_counts[building_node] = node_building_counts.get(building_node, 0) + int(count)
 
-        line_id_here = None
-        for parent, child, data in D.in_edges(node, data=True):
-            line_id_here = data.get(line_id, None)
-            break
+    # Build the input dictionary for path aggregation.
+    if dict_producer_attrs is not None:
+        producer_node_values = {}
+        for key, value in dict_producer_attrs.items():
+            if key in producer_idx_to_node:
+                producer_node_values[producer_idx_to_node[key]] = value
+            elif key in producer_nodes:
+                producer_node_values[key] = value
 
-        count_here = int(buildings_per_line.get(line_id_here, 0)) if line_id_here is not None else 0
-        downstream_counts[node] = count_here + edge_count
+        producer_paths = nx.multi_source_dijkstra_path(G, sources=producer_nodes, weight=weight)
+        node_values = {}
+        for building_node, count in node_building_counts.items():
+            path = producer_paths.get(building_node)
+            if not path:
+                continue
+            source_node = path[0]
+            producer_value = producer_node_values.get(source_node, 0)
+            node_values[building_node] = int(count) * producer_value
+
+        dict_attrs = node_values
+    else:
+        dict_attrs = node_building_counts
+
+    G, edge_attr_dict = sum_attrs_along_shortest_paths(
+        G = G,
+        startNodes = producer_nodes,
+        endNodes = list(dict_attrs.keys()),
+        weight = weight,
+        output_attr = output_attr,
+        dictAttrsEndNodes = dict_attrs,
+    )
 
     lines_out = lines.copy()
     lines_out[output_attr] = 0
 
-    for parent, child, data in D.edges(data=True):
-        line_id_here = data.get(line_id)
-        if line_id_here is not None:
-            lines_out.loc[lines_out[line_id] == line_id_here, output_attr] = int(downstream_counts.get(child, 0))
+    edge_line_map = {}
+    for u, v, data in G.edges(data=True):
+        line_key = data.get(line_id)
+        if line_key is not None:
+            edge_line_map[(u, v)] = line_key
+            edge_line_map[(v, u)] = line_key
+
+    for edge_key, value in edge_attr_dict.items():
+        line_key = edge_line_map.get(edge_key)
+        if line_key is not None:
+            lines_out.loc[lines_out[line_id] == line_key, output_attr] = int(value)
 
     lines_out[output_attr] = lines_out[output_attr].fillna(0).astype(int)
 

@@ -8,7 +8,7 @@ __version__ = "0.2.1"
 from .auxFunctions import *
 from .internal_auxFunctions import *
 
-from .suitable_network_routing import (network_span_bfs, sum_heat_demands_to_closest_supplier, )
+from .suitable_network_routing import (network_span_bfs, sum_attrs_to_closest_supplier, )
 
 from .create_network_topology import (create_ppi_network_from_gdf, create_connection_lines, )
 

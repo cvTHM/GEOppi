@@ -1,6 +1,8 @@
 # Changelog for GEOppi
 
 ## \[v0.2.1]
+* \[ADDED] Example script for application of *sum\_attrs\_to\_closest\_supplier*
+* \[CHANGED] Function *suitable\_network\_routing* - *sum\_attrs\_to\_closest\_supplier* now takes multiple attributes from attached buildings to be summed up along the shortest path to closest supplier.
 * \[CHANGED] Function *geodata\_from\_geometry* for creating pandapipes-compatible geodata from geometry of GIS data supports polygons
 * \[CHANGED] Deleted duplicate function definitions in *aux\_functions.py*
 * \[CHANGED] Updated setup.py and init file with version number

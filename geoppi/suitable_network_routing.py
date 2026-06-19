@@ -130,59 +130,217 @@ def sum_attrs_along_shortest_paths(
     return G, edge_attr_dict
 
 
-def sum_heat_demands_to_closest_supplier(
-        edgelist:pd.DataFrame,
-        sources:str = 'from_junction',
-        targets:str = 'to_junction',
-        startNodes:list = None,
-        endNodes:list = None,
-        edge_key:str = 'unique_ID',
-        weight:str = None,
-        outAttr_weight:str = None,
-        dictAttrsEndNodes:dict = None
+def sum_attrs_to_closest_supplier(
+        lines:gp.GeoDataFrame,
+        buildings:gp.GeoDataFrame,
+        producers:gp.GeoDataFrame,
+        building_attrs:list = None,
+        output_attr:list = None,
+        weight:str = 'length',
+        line_id:str = 'unique_ID_lines',
+        building_id:str = 'unique_ID_polys',
+        dict_polyID_lineID:dict = None,
+        max_distance:float = 50.0,
     ):
-
     """
-    Function for summing up attributes (e.g. heat demands) at specified nodes found in **dictAttrsEndNodes** along the shortest path between all end nodes and all start nodes.\n
+    Calculate downstream sums of building attribute values along the shortest path from each building to the nearest producer.
 
-    :param edgelist: pandas.DataFrame denoting edgelist for conversion into networkx graph object.\n
-    :param sources: str denoting the column containing indices of source nodes for each edge.\n
-    :param targets: str denoting the column containing indices of source nodes for each edge.\n
-    :param startNodes: list containing indices of all start nodes from which shortest paths shall be searched.\n
-    :param endNodes: list containing indices of all end nodes for which shortest paths shall be searched.\n
-    :param edge_key: str denoting column name with uniqwie identifier for each edge in edgelist.\n
-    :param weight: str denoting column name and edge attribute defining the edges' weights.\n
-    :param outAttr: str denoting the output column name of the summed attributes along the shortest paths.\n
-    :param dictAttrsEndNodes: dict containing end node indices as keys and attributes at these nodes as values.\n
+    The function uses shortest-path utilities in GEOppi to determine paths from buildings to producers.
+    Buildings are attached to nearest line segments and their requested attribute values are aggregated
+    along the shortest path to the closest producer node.
 
-    :returns: pandas.DataFrame with modified edgelist and summed attributes along shortest paths.\n
+    :param lines: GeoDataFrame of line objects representing the distribution network.
+    :param buildings: GeoDataFrame of building polygons whose attributes shall be summed downstream along each line.
+    :param producers: GeoDataFrame of producer/starting-point geometries used as graph sources.
+    :param building_attrs: list of building attribute names to sum along the shortest path to the nearest producer.
+        When counting buildings, write a building attribute with value 1 before calling the function.
+    :param output_attr: list of output column names for summed attribute values on the line segments.
+        If None, default names are created by prefixing each building attribute with 'sum_'.
+    :param weight: str denoting the edge attribute used for shortest-path weighting.
+    :param line_id: str denoting the unique line identifier in *lines*.
+    :param building_id: str denoting the unique building identifier in *buildings*.
+    :param dict_polyID_lineID: optional dictionary mapping building IDs to line IDs. If provided, this mapping is used instead of nearest-line search.
+    :param max_distance: float denoting the search radius for attaching buildings to the nearest line.
+
+    :returns: GeoDataFrame of line objects with the added summed building attribute columns.
     """
 
-    # Plausibility checks
-    if edge_key not in edgelist.columns:
-        edgelist[edge_key] = np.arange(len(edgelist))
-        print(f'\n### Parameter edge_key as unique identifier for edges is not found. {edge_key} is added to the edgelist. ###')
+    if weight not in lines.columns:
+        raise ValueError(f'Weighting attribute {weight} not found in lines columns..')
 
-    elif edgelist[edge_key].nunique() != len(edgelist):
-        edgelist[edge_key] = np.arange(len(edgelist))
-        print(f'\n### Provided parameter edge_key as unique identifier for edges is not unique!. {edge_key} is added to the edgelist. ###')
+    if building_attrs is None:
+        raise ValueError('Parameter building_attrs must be provided as a list of building attribute names to sum.')
 
-    # Create Multigraph from provided edgelist
-    G = nx.from_pandas_edgelist(df = edgelist, source = sources, target = targets, edge_attr = weight, edge_key = edge_key, create_using = nx.MultiGraph())
+    if isinstance(building_attrs, str):
+        building_attrs = [building_attrs]
+    building_attrs = list(building_attrs)
+    if not building_attrs:
+        raise ValueError('Parameter building_attrs must contain at least one attribute name.')
 
-    # Initialize summed weight attribute
-    outAttr_weight = 'sum_' if outAttr_weight is None else outAttr_weight
-    nx.set_edge_attributes(G, values = 0, name = outAttr_weight)
+    if output_attr is None:
+        output_attr = [f'sum_{attr}' for attr in building_attrs]
+    elif isinstance(output_attr, str):
+        if len(building_attrs) != 1:
+            raise ValueError('If multiple building_attrs are supplied, output_attr must be a list of the same length.')
+        output_attr = [output_attr]
+    else:
+        output_attr = list(output_attr)
 
-    # Sum weights along the sortest path between each end node and provided start nodes
-    ## edge_attr_dict contains unique edge keys as keys and summed attributes on edges as values
-    G, edge_attr_dict = sum_attrs_along_shortest_paths(G = G, startNodes = startNodes, endNodes = endNodes, weight = weight, output_attr = outAttr_weight, dictAttrsEndNodes = dictAttrsEndNodes)
+    if len(output_attr) != len(building_attrs):
+        raise ValueError('The number of output_attr names must match the number of building_attrs.')
 
-    edgelist_out = edgelist.copy()
+    if lines.crs != buildings.crs:
+        buildings = buildings.to_crs(lines.crs)
 
-    edgelist_out[outAttr_weight] = edgelist_out.apply(lambda x: edge_attr_dict[x[edge_key]] if x[edge_key] in edge_attr_dict.keys() else 0, axis = 1)
+    if lines.crs != producers.crs:
+        producers = producers.to_crs(lines.crs)
 
-    return edgelist_out
+    lines = lines.copy()
+    if line_id not in lines.columns:
+        lines[line_id] = np.arange(len(lines), dtype=int)
+
+    # Ensure the network graph conversion receives only LineString geometries.
+    if lines.geometry.geom_type.isin(['MultiLineString']).any():
+        lines = lines.explode(index_parts=False).reset_index(drop=True)
+
+    buildings = buildings.copy()
+    if building_id not in buildings.columns:
+        buildings[building_id] = np.arange(len(buildings), dtype=int)
+
+    if any(attr not in buildings.columns for attr in building_attrs):
+        missing = [attr for attr in building_attrs if attr not in buildings.columns]
+        raise ValueError(f'Missing building attribute(s): {missing}')
+
+    if dict_polyID_lineID is not None:
+        buildings_attached = buildings[[building_id] + building_attrs].copy()
+        buildings_attached[line_id] = buildings_attached[building_id].map(dict_polyID_lineID)
+        buildings_attached['distance_to_line'] = np.nan
+        buildings_attached = buildings_attached[buildings_attached[line_id].notna()].copy()
+    else:
+        line_subset = lines[[line_id, 'geometry']].copy()
+        buildings_subset = buildings[[building_id, 'geometry']].copy()
+
+        buildings_attached = closest_lines_to_polygons(
+            polygons=buildings_subset,
+            lines=line_subset,
+            maxDistances=max_distance,
+        )
+
+        if 'nearestline' in buildings_attached.columns:
+            buildings_attached = buildings_attached.rename(columns={'nearestline': line_id, 'distance': 'distance_to_line'})
+        else:
+            buildings_attached = buildings_attached.rename(columns={line_id: line_id, 'distance': 'distance_to_line'})
+
+        # Convert line index from closest_lines_to_polygons to actual line unique IDs
+        dict_idx_to_id = dict(zip(list(line_subset.index), list(line_subset[line_id])))
+        buildings_attached[line_id] = buildings_attached[line_id].apply(
+            lambda x: dict_idx_to_id[x] if x in dict_idx_to_id else np.nan
+        )
+        buildings_attached = buildings_attached[buildings_attached[line_id].notna()].copy()
+
+        buildings_attached = buildings_attached.merge(
+            buildings[[building_id] + building_attrs],
+            on=building_id,
+            how='left',
+        )
+        buildings_attached[building_attrs] = buildings_attached[building_attrs].fillna(0)
+
+    buildings_per_line = (
+        buildings_attached.groupby(line_id, dropna=False)[building_attrs]
+        .sum()
+    )
+
+    if buildings_per_line.empty:
+        lines_out = lines.copy()
+        for out_attr in output_attr:
+            lines_out[out_attr] = 0
+        return lines_out
+
+    G = gdf_to_nx(lines, approach='primal', multigraph=False, directed=False)
+
+    producer_coords = np.array([tuple(point) for point in zip(producers.geometry.x, producers.geometry.y)])
+    graph_nodes = np.asarray(G.nodes)
+
+    producer_nodes = []
+    producer_idx_to_node = {}
+    for idx, point in zip(producers.index, producer_coords):
+        nearest = closest_point(points=graph_nodes, target=point, threshDistance=max_distance)
+        if len(nearest) > 0:
+            producer_node = tuple(nearest)
+            producer_nodes.append(producer_node)
+            producer_idx_to_node[idx] = producer_node
+
+    producer_nodes = list(dict.fromkeys(producer_nodes))
+
+    if not producer_nodes:
+        lines_out = lines.copy()
+        for out_attr in output_attr:
+            lines_out[out_attr] = 0
+        return lines_out
+
+    line_endpoints = {
+        data.get(line_id): (u, v)
+        for u, v, data in G.edges(data=True)
+        if data.get(line_id) is not None
+    }
+
+    # Determine the line endpoint that represents the building-side node for each attached line.
+    lengths = nx.multi_source_dijkstra_path_length(G, sources=producer_nodes, weight=weight)
+    node_building_attr_sums = {}
+    for line_idx, row in buildings_per_line.reset_index().iterrows():
+        endpoints = line_endpoints.get(row[line_id])
+        if endpoints is None:
+            continue
+
+        u, v = endpoints
+        dist_u = lengths.get(u, float('inf'))
+        dist_v = lengths.get(v, float('inf'))
+        if dist_u == float('inf') and dist_v == float('inf'):
+            continue
+
+        building_node = v if dist_v >= dist_u else u
+        attr_values = node_building_attr_sums.setdefault(building_node, {attr: 0 for attr in building_attrs})
+        for attr in building_attrs:
+            attr_values[attr] += row[attr]
+
+    if not node_building_attr_sums:
+        lines_out = lines.copy()
+        for out_attr in output_attr:
+            lines_out[out_attr] = 0
+        return lines_out
+
+    lines_out = lines.copy()
+    for out_attr in output_attr:
+        lines_out[out_attr] = 0
+
+    edge_line_map = {}
+    for u, v, data in G.edges(data=True):
+        line_key = data.get(line_id)
+        if line_key is not None:
+            edge_line_map[(u, v)] = line_key
+            edge_line_map[(v, u)] = line_key
+
+    for attr, out_attr in zip(building_attrs, output_attr):
+        dict_attrs = {node: values[attr] for node, values in node_building_attr_sums.items()}
+        G, edge_attr_dict = sum_attrs_along_shortest_paths(
+            G = G,
+            startNodes = producer_nodes,
+            endNodes = list(dict_attrs.keys()),
+            weight = weight,
+            output_attr = out_attr,
+            dictAttrsEndNodes = dict_attrs,
+        )
+
+        for edge_key, value in edge_attr_dict.items():
+            line_key = edge_line_map.get(edge_key)
+            if line_key is not None:
+                lines_out.loc[lines_out[line_id] == line_key, out_attr] = value
+
+        lines_out[out_attr] = lines_out[out_attr].fillna(0)
+
+    breakpoint()
+
+    return lines_out
 
 ### BFS ###
 def network_span_bfs(

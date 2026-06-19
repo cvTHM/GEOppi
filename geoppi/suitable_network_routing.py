@@ -102,7 +102,7 @@ def sum_attrs_along_shortest_paths(
     return G, edge_attr_dict
 
 
-def sum_heat_demands_to_closest_supplier(
+def sum_attr_to_closest_supplier(
         edgelist:pd.DataFrame,
         sources:str = 'from_junction',
         targets:str = 'to_junction',
@@ -152,44 +152,83 @@ def sum_heat_demands_to_closest_supplier(
 
     edgelist_out = edgelist.copy()
 
-    edgelist_out[outAttr_weight] = edgelist_out.apply(lambda x: edge_attr_dict[x[edge_key]] if x[edge_key] in edge_attr_dict.keys() else 0, axis = 1)
+    # Retrieve computed sums per unique edge key (edge_attr_dict maps edge_key -> summed value)
+    summed_series = edgelist_out.apply(lambda x: edge_attr_dict[x[edge_key]] if x[edge_key] in edge_attr_dict.keys() else 0, axis = 1)
+
+    # If the edgelist already contains a value for the same output attribute, include it in the total.
+    # This ensures attributes that are intrinsic to the edge itself (e.g. local building counts)
+    # are added to the downstream-summed values instead of being overwritten.
+    if outAttr_weight in edgelist_out.columns:
+        orig = edgelist_out[outAttr_weight].fillna(0)
+        try:
+            edgelist_out[outAttr_weight] = (summed_series.astype(float) + orig.astype(float)).astype(orig.dtype)
+        except Exception:
+            # Fallback: keep numeric sum as float if dtype coercion fails
+            edgelist_out[outAttr_weight] = (summed_series.fillna(0) + orig.fillna(0))
+    else:
+        edgelist_out[outAttr_weight] = summed_series
 
     return edgelist_out
 
 
-def count_downstream_buildings(
+def sum_attrs_to_closest_supplier(
         lines:gp.GeoDataFrame,
         buildings:gp.GeoDataFrame,
         producers:gp.GeoDataFrame,
-        output_attr:str = 'n_buildings_downstream',
+        building_attrs:list = None,
+        output_attr:list = None,
         weight:str = 'length',
         line_id:str = 'unique_ID_lines',
         building_id:str = 'unique_ID_polys',
         dict_polyID_lineID:dict = None,
-        dict_producer_attrs:dict = None,
         max_distance:float = 50.0,
     ):
     """
-    Calculate the number of buildings downstream of each line segment in a radial network.
+    Calculate downstream sums of building attribute values along the shortest path from each building to the nearest producer.
 
     The function uses shortest-path utilities in GEOppi to determine paths from buildings to producers.
-    Buildings are attached to nearest line segments and then aggregated along the shortest path to the
-    closest producer node. Optionally, a dictionary of producer attributes can be supplied to weight the
-    aggregation by producer-specific values.
+    Buildings are attached to nearest line segments and their requested attribute values are aggregated
+    along the shortest path to the closest producer node.
 
     :param lines: GeoDataFrame of line objects representing the distribution network.
-    :param buildings: GeoDataFrame of building polygons to be counted downstream of each line.
+    :param buildings: GeoDataFrame of building polygons whose attributes shall be summed downstream along each line.
     :param producers: GeoDataFrame of producer/starting-point geometries used as graph sources.
-    :param output_attr: str denoting the output column name for downstream building counts or path sums.
+    :param building_attrs: list of building attribute names to sum along the shortest path to the nearest producer.
+        When counting buildings, write a building attribute with value 1 before calling the function.
+    :param output_attr: list of output column names for summed attribute values on the line segments.
+        If None, default names are created by prefixing each building attribute with 'sum_'.
     :param weight: str denoting the edge attribute used for shortest-path weighting.
     :param line_id: str denoting the unique line identifier in *lines*.
     :param building_id: str denoting the unique building identifier in *buildings*.
     :param dict_polyID_lineID: optional dictionary mapping building IDs to line IDs. If provided, this mapping is used instead of nearest-line search.
-    :param dict_producer_attrs: optional dictionary mapping producers to a scalar value that shall be summed along the shortest path from each building to its producer. Keys may be producer index values or producer graph node tuples.
     :param max_distance: float denoting the search radius for attaching buildings to the nearest line.
 
-    :returns: GeoDataFrame of line objects with the added downstream-building count or summed producer attribute.
+    :returns: GeoDataFrame of line objects with the added summed building attribute columns.
     """
+
+    if weight not in lines.columns:
+        raise ValueError(f'Weighting attribute {weight} not found in lines columns..')
+
+    if building_attrs is None:
+        raise ValueError('Parameter building_attrs must be provided as a list of building attribute names to sum.')
+
+    if isinstance(building_attrs, str):
+        building_attrs = [building_attrs]
+    building_attrs = list(building_attrs)
+    if not building_attrs:
+        raise ValueError('Parameter building_attrs must contain at least one attribute name.')
+
+    if output_attr is None:
+        output_attr = [f'sum_{attr}' for attr in building_attrs]
+    elif isinstance(output_attr, str):
+        if len(building_attrs) != 1:
+            raise ValueError('If multiple building_attrs are supplied, output_attr must be a list of the same length.')
+        output_attr = [output_attr]
+    else:
+        output_attr = list(output_attr)
+
+    if len(output_attr) != len(building_attrs):
+        raise ValueError('The number of output_attr names must match the number of building_attrs.')
 
     if lines.crs != buildings.crs:
         buildings = buildings.to_crs(lines.crs)
@@ -209,8 +248,12 @@ def count_downstream_buildings(
     if building_id not in buildings.columns:
         buildings[building_id] = np.arange(len(buildings), dtype=int)
 
+    if any(attr not in buildings.columns for attr in building_attrs):
+        missing = [attr for attr in building_attrs if attr not in buildings.columns]
+        raise ValueError(f'Missing building attribute(s): {missing}')
+
     if dict_polyID_lineID is not None:
-        buildings_attached = buildings[[building_id]].copy()
+        buildings_attached = buildings[[building_id] + building_attrs].copy()
         buildings_attached[line_id] = buildings_attached[building_id].map(dict_polyID_lineID)
         buildings_attached['distance_to_line'] = np.nan
         buildings_attached = buildings_attached[buildings_attached[line_id].notna()].copy()
@@ -236,16 +279,22 @@ def count_downstream_buildings(
         )
         buildings_attached = buildings_attached[buildings_attached[line_id].notna()].copy()
 
+        buildings_attached = buildings_attached.merge(
+            buildings[[building_id] + building_attrs],
+            on=building_id,
+            how='left',
+        )
+        buildings_attached[building_attrs] = buildings_attached[building_attrs].fillna(0)
+
     buildings_per_line = (
-        buildings_attached.groupby(line_id, dropna=False)
-        .size()
-        .rename('n_buildings_attached')
-        .astype(int)
+        buildings_attached.groupby(line_id, dropna=False)[building_attrs]
+        .sum()
     )
 
     if buildings_per_line.empty:
         lines_out = lines.copy()
-        lines_out[output_attr] = 0
+        for out_attr in output_attr:
+            lines_out[out_attr] = 0
         return lines_out
 
     G = gdf_to_nx(lines, approach='primal', multigraph=False, directed=False)
@@ -266,7 +315,8 @@ def count_downstream_buildings(
 
     if not producer_nodes:
         lines_out = lines.copy()
-        lines_out[output_attr] = 0
+        for out_attr in output_attr:
+            lines_out[out_attr] = 0
         return lines_out
 
     line_endpoints = {
@@ -277,9 +327,9 @@ def count_downstream_buildings(
 
     # Determine the line endpoint that represents the building-side node for each attached line.
     lengths = nx.multi_source_dijkstra_path_length(G, sources=producer_nodes, weight=weight)
-    node_building_counts = {}
-    for line_idx, count in buildings_per_line.items():
-        endpoints = line_endpoints.get(line_idx)
+    node_building_attr_sums = {}
+    for line_idx, row in buildings_per_line.reset_index().iterrows():
+        endpoints = line_endpoints.get(row[line_id])
         if endpoints is None:
             continue
 
@@ -290,42 +340,19 @@ def count_downstream_buildings(
             continue
 
         building_node = v if dist_v >= dist_u else u
-        node_building_counts[building_node] = node_building_counts.get(building_node, 0) + int(count)
+        attr_values = node_building_attr_sums.setdefault(building_node, {attr: 0 for attr in building_attrs})
+        for attr in building_attrs:
+            attr_values[attr] += row[attr]
 
-    # Build the input dictionary for path aggregation.
-    if dict_producer_attrs is not None:
-        producer_node_values = {}
-        for key, value in dict_producer_attrs.items():
-            if key in producer_idx_to_node:
-                producer_node_values[producer_idx_to_node[key]] = value
-            elif key in producer_nodes:
-                producer_node_values[key] = value
-
-        producer_paths = nx.multi_source_dijkstra_path(G, sources=producer_nodes, weight=weight)
-        node_values = {}
-        for building_node, count in node_building_counts.items():
-            path = producer_paths.get(building_node)
-            if not path:
-                continue
-            source_node = path[0]
-            producer_value = producer_node_values.get(source_node, 0)
-            node_values[building_node] = int(count) * producer_value
-
-        dict_attrs = node_values
-    else:
-        dict_attrs = node_building_counts
-
-    G, edge_attr_dict = sum_attrs_along_shortest_paths(
-        G = G,
-        startNodes = producer_nodes,
-        endNodes = list(dict_attrs.keys()),
-        weight = weight,
-        output_attr = output_attr,
-        dictAttrsEndNodes = dict_attrs,
-    )
+    if not node_building_attr_sums:
+        lines_out = lines.copy()
+        for out_attr in output_attr:
+            lines_out[out_attr] = 0
+        return lines_out
 
     lines_out = lines.copy()
-    lines_out[output_attr] = 0
+    for out_attr in output_attr:
+        lines_out[out_attr] = 0
 
     edge_line_map = {}
     for u, v, data in G.edges(data=True):
@@ -334,12 +361,25 @@ def count_downstream_buildings(
             edge_line_map[(u, v)] = line_key
             edge_line_map[(v, u)] = line_key
 
-    for edge_key, value in edge_attr_dict.items():
-        line_key = edge_line_map.get(edge_key)
-        if line_key is not None:
-            lines_out.loc[lines_out[line_id] == line_key, output_attr] = int(value)
+    for attr, out_attr in zip(building_attrs, output_attr):
+        dict_attrs = {node: values[attr] for node, values in node_building_attr_sums.items()}
+        G, edge_attr_dict = sum_attrs_along_shortest_paths(
+            G = G,
+            startNodes = producer_nodes,
+            endNodes = list(dict_attrs.keys()),
+            weight = weight,
+            output_attr = out_attr,
+            dictAttrsEndNodes = dict_attrs,
+        )
 
-    lines_out[output_attr] = lines_out[output_attr].fillna(0).astype(int)
+        for edge_key, value in edge_attr_dict.items():
+            line_key = edge_line_map.get(edge_key)
+            if line_key is not None:
+                lines_out.loc[lines_out[line_id] == line_key, out_attr] = value
+
+        lines_out[out_attr] = lines_out[out_attr].fillna(0)
+
+    breakpoint()
 
     return lines_out
 

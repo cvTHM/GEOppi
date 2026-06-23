@@ -359,7 +359,7 @@ else:
     DF_edges = netFeedReflux.pipe[netFeedReflux.pipe['Layer'] == 'feedLine'][[n for n in colsToKeep if n in netFeedReflux.pipe.columns]]
 
 DF_edges.loc[DF_edges[weightAttr].isna(), weightAttr] = 0
-
+"""
 DF_out = geoppi.sum_heat_demands_to_closest_supplier(
     edgelist = DF_edges,
     sources = 'from_junction',
@@ -388,7 +388,7 @@ gdf.plot(
     vmax = gdf['summed_demand_use_th'].max()*0.75, 
     legend = True,
     **styles)
-
+"""
 
 # %% Implement controllers
 # Define control targets

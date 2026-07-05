@@ -3,6 +3,7 @@
 
 ### Imports
 
+import logging
 import geopandas as gp
 import pandas as pd
 import pandapipes.toolbox as ppitlbx
@@ -1182,7 +1183,11 @@ def create_ppi_producers_from_GIS_data(
         counts = gp.sjoin(prods[['geometry']], junctions_gdf[['geometry']], predicate = 'intersects', how = 'inner').groupby(level = 0).size()
         for idx, cnt in counts.items():
             if cnt > 1:
-                print(f'\n### Error! Producer at index {idx} intersects {cnt} junctions. A producer must intersect exactly one junction; only the first is used. ###\n')
+                logging.warning("Producer at index %s intersects %s junctions. "
+                            "A producer must intersect exactly one junction; only the first is used.", 
+                            idx, 
+                            cnt,)
+
     ### Differ between modeling types: "feed_line" and "feed_and_reflux_line"
     if modelling_type == 'feed_line':
         print('\n### Peak load producers are modelled as external grids.\n \

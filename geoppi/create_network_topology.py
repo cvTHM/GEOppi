@@ -1178,13 +1178,13 @@ def create_ppi_producers_from_GIS_data(
     production_sites.reset_index(drop = True, inplace = True)
     
 
-    def _check_producer_junction_count(prods, junctions_gdf):
+    def _check_producer_junction_count(prods:gp.GeoDataFrame, junctions_gdf:gp.GeoDataFrame):
         # Print a specific error if a producer polygon intersects more than one junction (only the first is used).
         counts = gp.sjoin(prods[['geometry']], junctions_gdf[['geometry']], predicate = 'intersects', how = 'inner').groupby(level = 0).size()
         for idx, cnt in counts.items():
             if cnt > 1:
                 logging.warning("Producer at index %s intersects %s junctions. "
-                            "A producer must intersect exactly one junction; only the first is used.", 
+                            "A producer must intersect with exactly one junction; only the first is used.", 
                             idx, 
                             cnt,)
 

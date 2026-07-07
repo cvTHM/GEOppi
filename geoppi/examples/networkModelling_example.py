@@ -15,6 +15,7 @@ from geoppi import (transfer_LoadPoint_ppi, extract_FluidProperties_ppi, get_dic
 
 # %% Load data
 
+
 # Define coordinate system
 cs = 'EPSG:25832'
 
@@ -50,6 +51,7 @@ valves = gp.read_file(flp / ('valves.gpkg')).to_crs(cs)
 
 # Load production site layer
 producers = gp.read_file(flp / Path('producers2.gpkg')).to_crs(cs)
+
 
 # Load elevation raster layer
 dgm = rasterio.open(flp / Path('dgm.tif'))
@@ -359,18 +361,17 @@ else:
     DF_edges = netFeedReflux.pipe[netFeedReflux.pipe['Layer'] == 'feedLine'][[n for n in colsToKeep if n in netFeedReflux.pipe.columns]]
 
 DF_edges.loc[DF_edges[weightAttr].isna(), weightAttr] = 0
-"""
-DF_out = geoppi.sum_heat_demands_to_closest_supplier(
-    edgelist = DF_edges,
-    sources = 'from_junction',
-    targets = 'to_junction',
-    startNodes = netFeedReflux.circ_pump_pressure['flow_junction'].to_list() + [netFeedReflux.flow_control.loc[0, 'to_junction']],
-    endNodes = list(netFeedReflux.heat_consumer['from_junction']),
-    weight = weightAttr,
-    outAttr_weight = 'summed_demand_use_th',
-    dictAttrsEndNodes = dict(zip(netFeedReflux.heat_consumer['from_junction'], netFeedReflux.heat_consumer['demand_use_th'].fillna(0)))
-)
+DF_edges = gp.GeoDataFrame(DF_edges, geometry = "geometry").set_crs(cs)
 
+
+DF_out = geoppi.sum_attrs_to_closest_supplier(
+    lines = DF_edges,
+    buildings = gp.GeoDataFrame(netFeedReflux.heat_consumer, geometry = "geometry").set_crs(cs),
+    producers = gp.GeoDataFrame(netFeedReflux.junction[netFeedReflux.junction.index.isin(list(netFeedReflux.circ_pump_pressure["flow_junction"]) + list(netFeedReflux.circ_pump_mass["flow_junction"]))], geometry = "geometry").set_crs(cs),
+    building_attrs = ['demand_use_th'],
+    weight = "length_km",
+    building_id = "build_ID", 
+)
 
 gdf = gp.GeoDataFrame(DF_out, geometry = 'geometry').set_crs(cs)
 fig, ax1 = plt.subplots(1, figsize = (30,20))
@@ -382,13 +383,13 @@ tfont = {'fontsize': 20}  # Font for title
 ax1.set_title('Summed annual heat demand (kWh)\nfrom closest heat supplier to heat consumers', **tfont)
 gdf.plot(
     ax = ax1, 
-    column = 'summed_demand_use_th', 
+    column = 'sum_demand_use_th', 
     cmap=plt.get_cmap('magma'),
     vmin = 0,
-    vmax = gdf['summed_demand_use_th'].max()*0.75, 
+    vmax = gdf['sum_demand_use_th'].max()*0.75, 
     legend = True,
     **styles)
-"""
+
 
 # %% Implement controllers
 # Define control targets

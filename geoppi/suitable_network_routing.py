@@ -6,7 +6,8 @@ import pandas as pd
 import numpy as np
 import networkx as nx
 
-from geoppi.auxFunctions import (closest_point, sort_with_permutation, gdf_to_nx, nx_to_gdf, )
+from geoppi.auxFunctions import (closest_point, sort_with_permutation, gdf_to_nx, nx_to_gdf,)
+from geoppi.line_density_calculation import (closest_lines_to_polygons, )
 
 ### Functions for analysis of shortest path lengths between specified sets of start- and end nodes and summed weights
 def shortest_paths_pathweights(
@@ -98,16 +99,18 @@ def sum_attrs_along_shortest_paths(
     # Calculate shortest path between each end node and the closest starting node and respective shortest path weights
     shortestPath, _ = shortest_paths_pathweights(G = G, startNodes = startNodes, endNodes = endNodes, weight = weight)
 
+    breakpoint()
     if multi:  # mulitgraph object, edge keys for parallel edges may be present
         for k, path in shortestPath.items():
             for u, v in zip(path[0][:-1], path[0][1:]):
 
+                breakpoint()
                 edges = G[u][v] # -> All edges betwen nodes u and v
 
                 # Address possible parallel edges
                 min_key, _ = min(edges.items(), key=lambda item: item[1].get(weight, float('inf')))
 
-                G[u][v][min_key][outAttr_weight] += dictAttrsEndNodes[k]
+                G[u][v][min_key][outAttr_weight] = G[u][v][min_key].get(outAttr_weight, 0)+dictAttrsEndNodes[k]
 
         # Initialize final output dictionary for matching of line ID and summed Attribute (summed weight)
         edge_attr_dict = {}
@@ -120,7 +123,7 @@ def sum_attrs_along_shortest_paths(
 
                 edges = G[u][v] # -> All edges betwen nodes u and v
 
-                G[u][v][outAttr_weight] += dictAttrsEndNodes[k]
+                G[u][v][outAttr_weight] = G[u][v].get(outAttr_weight, 0)+dictAttrsEndNodes[k]
 
         # Initialize final output dictionary for matching of line ID and summed Attribute (summed weight)
         edge_attr_dict = {}
@@ -321,6 +324,7 @@ def sum_attrs_to_closest_supplier(
             edge_line_map[(v, u)] = line_key
 
     for attr, out_attr in zip(building_attrs, output_attr):
+        breakpoint()
         dict_attrs = {node: values[attr] for node, values in node_building_attr_sums.items()}
         G, edge_attr_dict = sum_attrs_along_shortest_paths(
             G = G,

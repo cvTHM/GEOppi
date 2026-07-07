@@ -6,7 +6,7 @@ import geoppi
 from geoppi.create_network_topology import createUniqueJunctions
 
 
-DATA_DIR = Path(__file__).resolve().parent / "geoppi" / "examples" / "data" / "exampleNetwork"
+DATA_DIR = Path(__file__).resolve().parent / "data" / "exampleNetwork"
 
 
 # %% Load raw example data from geoppi/examples/data/exampleNetwork
@@ -31,13 +31,13 @@ buildings["unique_ID_polys"] = np.arange(len(buildings), dtype=int)
 producer_single = producers.head(1).reset_index(drop=True)
 
 # Create a building attribute that equals 1 for every building so counts can be summed.
-buildings['n_buildings'] = 1
+buildings["n_buildings"] = 1
 
 lines_downstream_single = geoppi.sum_attrs_to_closest_supplier(
     lines=lines,
     buildings=buildings,
     producers=producer_single,
-    building_attrs=['n_buildings', "demand_use_th"],
+    building_attrs=["n_buildings", "demand_use_th"],
     output_attr=["sum_n_buildings_downstream", "sum_demand_use_th_downstream"],
     weight='length',
     line_id='unique_ID_lines',

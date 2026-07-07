@@ -1177,7 +1177,6 @@ def create_ppi_producers_from_GIS_data(
     # Identify junctions in feed line and reflux line connected to production sites
     production_sites.reset_index(drop = True, inplace = True)
     
-
     def _check_producer_junction_count(prods:gp.GeoDataFrame, junctions_gdf:gp.GeoDataFrame):
         # Print a specific error if a producer polygon intersects more than one junction (only the first is used).
         counts = gp.sjoin(prods[['geometry']], junctions_gdf[['geometry']], predicate = 'intersects', how = 'inner').groupby(level = 0).size()

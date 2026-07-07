@@ -3,6 +3,7 @@
 
 ### Imports
 
+import logging
 import geopandas as gp
 import pandas as pd
 import pandapipes.toolbox as ppitlbx
@@ -1177,6 +1178,16 @@ def create_ppi_producers_from_GIS_data(
     production_sites.reset_index(drop = True, inplace = True)
     
 
+    def _check_producer_junction_count(prods:gp.GeoDataFrame, junctions_gdf:gp.GeoDataFrame):
+        # Print a specific error if a producer polygon intersects more than one junction (only the first is used).
+        counts = gp.sjoin(prods[['geometry']], junctions_gdf[['geometry']], predicate = 'intersects', how = 'inner').groupby(level = 0).size()
+        for idx, cnt in counts.items():
+            if cnt > 1:
+                logging.warning("Producer at index %s intersects %s junctions. "
+                            "A producer must intersect with exactly one junction; only the first is used.", 
+                            idx, 
+                            cnt,)
+
     ### Differ between modeling types: "feed_line" and "feed_and_reflux_line"
     if modelling_type == 'feed_line':
         print('\n### Peak load producers are modelled as external grids.\n \
@@ -1187,6 +1198,8 @@ def create_ppi_producers_from_GIS_data(
             junctions = gp.GeoDataFrame(net.junction, geometry = 'geometry').set_crs(cs),
             junctionAttribute = 'flow_junction'
             )
+
+        _check_producer_junction_count(production_sites, gp.GeoDataFrame(net.junction, geometry = 'geometry').set_crs(cs))
 
         ### Create external grid at production sites with peak load producer
         for n, p in production_sites.iterrows():
@@ -1270,6 +1283,8 @@ def create_ppi_producers_from_GIS_data(
             junctions = gp.GeoDataFrame(net.junction[net.junction[lay_col] == lay_col_attr_reflux], geometry = 'geometry').set_crs(cs),
             junctionAttribute = 'reflux_junction'
             )
+
+        _check_producer_junction_count(production_sites, gp.GeoDataFrame(net.junction[net.junction[lay_col] == lay_col_attr_feed], geometry = 'geometry').set_crs(cs))
 
         # Create counter
         counter_baseload = 0
@@ -1363,6 +1378,8 @@ def create_ppi_producers_from_GIS_data(
             junctionAttribute = 'reflux_junction'
             )
         
+        _check_producer_junction_count(production_sites, gp.GeoDataFrame(net.junction[net.junction[lay_col] == lay_col_attr_feed], geometry = 'geometry').set_crs(cs))
+
         # Create counter for base load producers
         counter_baseload = 0
         

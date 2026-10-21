@@ -1518,7 +1518,8 @@ def create_ppi_network_from_gdf(
         producerAddAttr:list = [],
         networkName:str = 'net1',
         networkFluid:str = 'water',
-        checkUnconnectedComponents:bool = False
+        checkUnconnectedComponents:bool = False,
+        **kwargs
     ):
 
     """
@@ -1630,7 +1631,7 @@ def create_ppi_network_from_gdf(
             dict_attributes = {
                 'pipes':['connectionType', 'nominalWidth', 'Layer', 'geometry', 'subgraph'],
                 'junctions':['Layer', 'ID', 'geometry'],
-                'sinks':['Layer', 'geometry', heatingDemandAttr, buildings_uniqueID],
+                'sinks':['Layer', 'geometry', heatingDemandAttr, buildings_uniqueID] + [n for n in sinks.columns if any(t in n.lower() for t in ["pth"])],
                 'valves':['Layer', 'geometry']
             }
         )

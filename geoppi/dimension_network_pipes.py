@@ -80,7 +80,8 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
         radialSystem:bool = True,
         define_loops_with_opened_valves:bool = True,
         fluidProperties:dict = {'rho':1000, 'cp':4190, 'nu':0.413e-06},
-        greaterWidthFinalStep:dict = {'distributionPipes':0, 'connectionPipes':0}
+        greaterWidthFinalStep:dict = {'distributionPipes':0, 'connectionPipes':0},
+        **kwargs
     ):
 
     """

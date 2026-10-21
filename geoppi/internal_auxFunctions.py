@@ -437,7 +437,8 @@ def transfer_LoadPoint_ppi(
     thermalPowerAttr = 'Pth_kW',
     thermalPowerAttrConsumers:str = None,
     baseLoadProdNaming:str = 'prod',
-    check_for_mass_flow_exceeding:bool = False
+    check_for_mass_flow_exceeding:bool = False,
+    **kwargs
     ):
 
     ### Define residual constant values

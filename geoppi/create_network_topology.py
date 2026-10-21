@@ -1578,7 +1578,7 @@ def create_ppi_network_from_gdf(
             if any(buildings_out['junction'].isna()):
                 print('\n### Attention! Buildings with following unique IDs could not be matched with junction: ', str(list(buildings_out.loc[buildings_out['junction'].isna(), buildings_uniqueID])), ' ###')
             
-            sinks = buildings_out[[heatingDemandAttr, buildings_uniqueID, 'junction']].copy()
+            sinks = buildings_out[[heatingDemandAttr, buildings_uniqueID, 'junction'] + [n for n in buildings_out.columns if any(t in n.lower() for t in ["pth", ])]].copy()
             sinks = sinks[~sinks['junction'].isna()].reset_index(drop = True)
 
             pipes = identify_connection_lines(
@@ -1631,7 +1631,7 @@ def create_ppi_network_from_gdf(
             dict_attributes = {
                 'pipes':['connectionType', 'nominalWidth', 'Layer', 'geometry', 'subgraph'],
                 'junctions':['Layer', 'ID', 'geometry'],
-                'sinks':['Layer', 'geometry', heatingDemandAttr, buildings_uniqueID] + [n for n in sinks.columns if any(t in n.lower() for t in ["pth"])],
+                'sinks':['Layer', 'geometry', heatingDemandAttr, buildings_uniqueID] + [n for n in sinks.columns if any(t in n.lower() for t in ["pth", ])],
                 'valves':['Layer', 'geometry']
             }
         )

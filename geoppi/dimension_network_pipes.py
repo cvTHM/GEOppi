@@ -2,12 +2,14 @@ import pandapipes as ppi
 import numpy as np
 import pandas as pd
 import logging
+from geoppi.auxFunctions import _print_info
+from typing import Callable, Optional
 
-from geoppi.auxFunctions import (cycleEdges, get_next_higher_value, func_nikuradse, func_swameejain)
+from geoppi.auxFunctions import (cycleEdges, func_swameejain, func_nikuradse, simultaneity_rh, simultaneity_DHW)
 
 
 def hydraulicDimensioningNetwork_singleLoadPoint(
-        net, # Pandapipes network
+        net: ppi.pandapipesNet, # Pandapipes network
         networkType:str = 'KMR',
         dictNominalInnerDiameter:dict = {
             'distributionPipes':{
@@ -81,6 +83,9 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
         define_loops_with_opened_valves:bool = True,
         fluidProperties:dict = {'rho':1000, 'cp':4190, 'nu':0.413e-06},
         greaterWidthFinalStep:dict = {'distributionPipes':0, 'connectionPipes':0},
+        deltaT: Optional[float] = None,
+        simultaneitySpaceHeating: Optional[Callable[[float], float]] = None,
+        simultaneityHotWater: Optional[Callable[[float], float]] = None,
         **kwargs
     ):
 
@@ -107,11 +112,24 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
     :param frictionModel: denotes the desired friction model which shall be used in hydraulic calculations (either 'colebrook' or 'nikuradse' are implemented).
     :param radialSystem: denotes a switch whether the algorithm shall check for existing loops in the network. 
         If a pure radial system is present, the dimensioning is reduced to a direct calculation of the matching / next higher nominal width.\n
-        Attention! If multiple producers are feeding into the network despite a purely radial network topology, the yielded results may be false!
+        In mixed networks, only bridges with producers on exactly one side are sized directly.
+        Producer connections and loop pipes retain iterative sizing. False disables direct sizing.
     :param define_loops_with_opened_valves: controls whether the definition of loops shall include valves that are opened.
     :param fluidProperties: denotes a dictionary with information on used fluid properties in the network (density "rho", specific heat capacity "cp" and kinematic viscosity "nu").
     :param greaterWidthFinalStep: denotes a dictionary which allows for the selection of altered nominal widths after the algorithm found best matches for the tagret pressure loss.
         The steps for distribution pipes and for connection pipes refer to steps within the provided range of keys for nominal widths.
+
+        Directly sized radial pipes retain their smallest complying nominal width.
+
+    Separate power columns are configured during create_ppi_network_from_gdf and read
+    exclusively from net.sink via net['design_power_attrs'] ('rh' and 'DHW').
+    With no configured columns, radial sizing uses simulated pipe mass flows.
+
+    :param deltaT: float positive feed-minus-return temperature difference in K, required for separate powers.
+    :param simultaneitySpaceHeating: callable taking downstream building count; default is constant 1.
+    :param simultaneityHotWater: callable taking downstream building count; default is 1.264 * n**(-0.82), without clipping.
+        Diversity applies only to radial pipe design flows, not to the network's sink/source simulation loads.
+        Pipe columns design_power_kW, design_mdot_kg_per_s and design_Pa_per_m describe this local design case.
 
     :returns: pandapipes network object
     """
@@ -167,9 +185,8 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
 
     # Control of closed valves
     if hasattr(net, 'valve'):
-        if (len(closedValvesIdx) == 1):
-            if closedValvesIdx[0] == -1:
-                net.valve['opened'] = False
+        if list(closedValvesIdx) == [-1]:
+            net.valve['opened'] = False
         elif len(closedValvesIdx) > 0:
             net.valve.loc[closedValvesIdx, 'opened'] = False
         elif len(closedValvesIdx) == 0:
@@ -179,22 +196,51 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
 
 
 
-    # If check for cycles shall be performed:
+    # Classify topology and sum consumers along geometrically weighted source paths.
+
+    # The network owns both the consumer powers and their column-name mapping.
+    # Reject the former GIS arguments instead of silently ignoring them via kwargs.
+    obsolete = {'buildings', 'buildingIdAttr', 'spaceHeatingPowerAttr', 'hotWaterPowerAttr'} & kwargs.keys()
+    if obsolete:
+        raise TypeError('Configure building power attributes in create_ppi_network_from_gdf, not pipe sizing.')
+    power_attrs = net.get('design_power_attrs', {})
+    separate_powers = bool(power_attrs)
+    sink_attributes = {'n_buildings_downstream': pd.Series(1.0, index=net.sink.index)}
+    if separate_powers:
+        if set(power_attrs) != {'rh', 'DHW'}:
+            raise ValueError("net['design_power_attrs'] must contain 'rh' and 'DHW'.")
+        if deltaT is None or not np.isfinite(deltaT) or deltaT <= 0:
+            raise ValueError('Separate design powers require a positive finite deltaT in K.')
+        spaceHeatingPowerAttr, hotWaterPowerAttr = power_attrs['rh'], power_attrs['DHW']
+        power_data = net.sink  # No building layer or repeated spatial/ID matching is needed.
+        for column, output in ((spaceHeatingPowerAttr, 'space_heating_kW_downstream'),
+                               (hotWaterPowerAttr, 'hot_water_kW_downstream')):
+            values = pd.to_numeric(power_data[column], errors='raise')
+            active_values = values.loc[net.sink.in_service]
+            if not np.isfinite(active_values).all() or (active_values < 0).any():
+                raise ValueError('Active consumers require finite nonnegative design powers.')
+            sink_attributes[output] = values
+
     net, bool_cycle = check_for_cycle(
-        ppi_network = net,
-        assign_cycle_affiliation = True,
-        define_loops_with_opened_valves = define_loops_with_opened_valves,
-        length_attr = 'length_km'
-        )
+        ppi_network=net, assign_cycle_affiliation=True,
+        define_loops_with_opened_valves=define_loops_with_opened_valves,
+        length_attr='length_km', radial_sink_attributes=sink_attributes)
+    radial_mask = net.pipe['is_radial'].to_numpy() & bool(radialSystem)
+    niter = 1 if radial_mask[net.pipe.in_service.to_numpy()].all() else 50
 
-    if radialSystem == True:
-        radialSystem = not(bool_cycle) * radialSystem
-
-    if radialSystem == True:
-        niter = 1
-    else:
-        niter = 50
-
+    # Calculate power at design load point for pipes outside of cycles and outside direct connections between multiple producers
+    if separate_powers:
+        heating_factor = simultaneitySpaceHeating or simultaneity_rh
+        water_factor = simultaneityHotWater or simultaneity_DHW
+        net.pipe['design_power_kW'] = np.nan
+        for idx in net.pipe.index[radial_mask]:
+            count = net.pipe.at[idx, 'n_buildings_downstream']
+            factors = np.array([heating_factor(count), water_factor(count)]) if count > 0 else np.zeros(2)
+            if not np.isfinite(factors).all() or (factors < 0).any():
+                raise ValueError('Simultaneity factors must be finite and nonnegative.')
+            net.pipe.at[idx, 'design_power_kW'] = (
+                factors[0] * net.pipe.at[idx, 'space_heating_kW_downstream']
+                + factors[1] * net.pipe.at[idx, 'hot_water_kW_downstream'])
 
     # Control of junction heights
     if respectHeight == False:
@@ -227,50 +273,39 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
                 else len(dictNominalInnerDiameter_red['distributionPipes'].keys()) - 2, axis=1)
             )         
 
-        ### Case: Radial system is present and iteration is not necessary: Direct calculation of diameter from resulting mass flows
-        if radialSystem == True:
-            print('n### Radial system is present and its dimensioning is desired. ###')
+        # Direct sizing runs once; iterative steps below are masked for these pipes.
+        if ii == 0 and radial_mask.any():
+            func_dp = func_swameejain if frictionModel in ('swamee-jain', 'colebrook') else func_nikuradse
 
-            from scipy.optimize import fsolve
+            if dpSpec <= 0 or not np.isfinite(dpSpec):
+                raise ValueError('dpSpec must be finite and positive.')
+            net.pipe['design_mdot_kg_per_s'] = np.nan
+            net.pipe['design_Pa_per_m'] = np.nan
+            for idx in net.pipe.index[radial_mask]:
+                mass_flow = (net.pipe.at[idx, 'design_power_kW'] * 1000 / (fluidProperties['cp'] * deltaT)
+                             if separate_powers else abs(net.res_pipe.at[idx, 'mdot_from_kg_per_s']))
+                if not np.isfinite(mass_flow):
+                    raise ValueError(f'No finite design flow for radial pipe {idx}.')
+                pipe_type = 'distributionPipes' if net.pipe.at[idx, connectionTypeAttr] == 'distribution' else 'connectionPipes'
+                candidates = sorted(dictNominalInnerDiameter_red[pipe_type].items(), key=lambda item: item[1])
+                # Evaluate each real catalogue diameter with its own roughness; no root rounding is needed.
+                for nominal, diameter_mm in candidates:
+                    # Calculate pressure loss as diffrence to set pressure loss of zero
+                    pressure_loss = (0.0 if mass_flow <= 1e-12 else -float(func_dp(
+                        diameter_mm / 1000, mass_flow, 0, fluidProperties['rho'],
+                        fluidProperties['nu'], dictWallRoughness[nominal])))
+                    if pressure_loss <= dpSpec:
+                        break
+                else:
+                    raise ValueError(f'No allowed nominal width meets dpSpec for radial pipe {idx}.')
+                net.pipe.at[idx, nominalWidthAttr] = nominal
+                net.pipe.at[idx, 'diameter_m'] = diameter_mm / 1000
+                net.pipe.at[idx, 'k_mm'] = dictWallRoughness[nominal]
+                net.pipe.at[idx, 'design_mdot_kg_per_s'] = mass_flow
+                net.pipe.at[idx, 'design_Pa_per_m'] = pressure_loss
+                new_keys[idx] = list(dictNominalInnerDiameter_red[pipe_type]).index(nominal)
 
-            dictNominalInnerDiameter_red_inverted = {
-                'distributionPipes':{v:k for k,v in dictNominalInnerDiameter_red['distributionPipes'].items()},
-                'connectionPipes':{v:k for k, v in dictNominalInnerDiameter_red['connectionPipes'].items()}
-                }
-
-            # Function defining diameter depending on mass flow            
-            func = func_swameejain if frictionModel in ('swamee-jain', 'colebrook') else func_nikuradse
-            
-            mass_flows = abs(np.array(net.res_pipe['mdot_from_kg_per_s']))
-            kWall = np.array(net.pipe['k_mm'])
-
-            diameters = np.array([
-                fsolve(func, 0.0001, args = (mp, dpSpec, fluidProperties['rho'], fluidProperties['nu'], kWall[n]))[0] if mp > 1e-12 else 0.05 for n, mp in enumerate(mass_flows)
-                ])
-
-            net.pipe['diameter_m'] = diameters
-
-
-
-            net.pipe['diameter_m'] = net.pipe.apply(lambda x:
-                                                round(get_next_higher_value(x['diameter_m'] * 1000, list(dictNominalInnerDiameter_red['distributionPipes'].values()))/1000, 4) if x[connectionTypeAttr] == 'distribution'
-                                                else round(get_next_higher_value(x['diameter_m'] * 1000, list(dictNominalInnerDiameter_red['connectionPipes'].values()))/1000, 4) if x[connectionTypeAttr] == 'houseConnection'
-                                                else np.nan, axis=1)
-
-
-            net.pipe[nominalWidthAttr] = net.pipe.apply(lambda x:
-                                                dictNominalInnerDiameter_red_inverted['distributionPipes'][round(x['diameter_m']*1e3, 1)] if x[connectionTypeAttr] == 'distribution'
-                                                else dictNominalInnerDiameter_red_inverted['connectionPipes'][round(x['diameter_m']*1e3, 1)] if x[connectionTypeAttr] == 'houseConnection'
-                                                else np.nan, axis=1)
-
-            new_keys = np.array(
-                net.pipe.apply(lambda x: list(dictNominalInnerDiameter_red['distributionPipes'].keys()).index(x[nominalWidthAttr]) if x[connectionTypeAttr] == 'distribution'
-                else list(dictNominalInnerDiameter_red['connectionPipes'].keys()).index(x[nominalWidthAttr]) if x[connectionTypeAttr] == 'houseConnection'
-                else len(dictNominalInnerDiameter_red['distributionPipes'].keys()) - 2, axis=1)
-            )
-
-
-        else:
+        if not radial_mask.all():
             ### Identify pipes whose resulting specific pressure drop is out of boundaries
             dp = abs(np.array(net.res_pipe['Pa_per_m']))
             np.nan_to_num(dp, copy = False, nan = 0)
@@ -283,6 +318,7 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
                 for npipe in range(len(net.pipe))
             ])
 
+            steps[radial_mask] = 0
             new_keys += steps
 
             new_keys[distributionPipes_Idx] = np.clip(new_keys[distributionPipes_Idx], 0, len(dictNominalInnerDiameter_red['distributionPipes'].keys())-1)
@@ -302,6 +338,7 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
                                               dictWallRoughness[x[nominalWidthAttr]], axis = 1)
         
 
+    radial_keys = new_keys.copy()
     # Apply final step to greater / lower nominal width dependent on input
     if greaterWidthFinalStep['distributionPipes'] != 0:
         new_keys[distributionPipes_Idx] += greaterWidthFinalStep['distributionPipes']
@@ -311,6 +348,7 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
         new_keys[connectionPipes_Idx] += greaterWidthFinalStep['connectionPipes']
         new_keys[connectionPipes_Idx] = np.clip(new_keys[connectionPipes_Idx], 0, len(dictNominalInnerDiameter_red['connectionPipes'].keys())-1)
 
+    new_keys[radial_mask] = radial_keys[radial_mask]
     # Assign final nominal widths and diameters
     net.pipe.loc[distributionPipes_Idx, nominalWidthAttr] = [list(dictNominalInnerDiameter_red['distributionPipes'].keys())[kk] for kk in new_keys[distributionPipes_Idx]]
     net.pipe.loc[connectionPipes_Idx, nominalWidthAttr] = [list(dictNominalInnerDiameter_red['connectionPipes'].keys())[kk] for kk in new_keys[connectionPipes_Idx]]
@@ -445,7 +483,7 @@ def assign_insulation_type(
             D=[dict_nominal_to_inner_diameters_5GDHC[NW[mm]] for mm in range(len(NW))]
 
         else:
-            print('\n ### Choose proper network typ. Either "KMR" or "5GDHC". ###')
+            _print_info('\n ### Choose proper network typ. Either "KMR" or "5GDHC". ###')
             return df
         
     
@@ -463,7 +501,7 @@ def assign_insulation_type(
         try:
             S=list(df[colNameWallThickness])
         except:
-            print('\n### No wall thickness column assigned to pipes DataFrame! ###')
+            _print_info('\n### No wall thickness column assigned to pipes DataFrame! ###')
 
 
     
@@ -507,6 +545,9 @@ def assign_insulation_type(
         arrLamJAcket
         )
 
+    # Preserve the selected output name while maintaining both pandapipes aliases.
+    df['alpha_w_per_m2k'] = df[colNameHTC]
+    df['u_w_per_m2k'] = df[colNameHTC]
     return(df)
 
 def calculate_heat_transfer_coeff(
@@ -553,7 +594,7 @@ def calculate_heat_transfer_coeff(
     return(k_ref_inner)
 
 def assign_nominal_widths_manually(
-        net, # Pandapipes network
+        net: ppi.pandapipesNet, # Pandapipes network
         dictNW:dict, 
         dictNominalInnerDiameter:dict = {
             10: 17.267,
@@ -643,7 +684,7 @@ def assign_nominal_widths_manually(
     return net
 
 def calc_spec_dp(
-        net, # pandapipes network object
+        net: ppi.pandapipesNet, # pandapipes network object
         colName_length:str = 'length_km',
         outputCol:str = 'Pa_per_m',
         factor_l:float = 1.0, 
@@ -678,10 +719,11 @@ def calc_spec_dp(
     return(net)
 
 def check_for_cycle(
-        ppi_network, 
+        ppi_network: ppi.pandapipesNet,
         assign_cycle_affiliation:bool = True, 
         define_loops_with_opened_valves:bool = True,
-        length_attr:str = 'length_km'
+        length_attr:str = 'length_km',
+        radial_sink_attributes: Optional[dict[str, pd.Series]] = None
         ):
     
     """
@@ -692,6 +734,8 @@ def check_for_cycle(
     :param define_loops_with_opened_valves: Boolean if only opened valves shall be used for definition of potential cycles. If False, all valves regardless of their state are considered.
     :param length_attr: Attribute name for pipe length found in ppi_network.pipe DataFrame
 
+    :param radial_sink_attributes: optional dict mapping output columns to Series indexed like net.sink.
+        Enables bridge classification and downstream sums; stored pipe direction is never changed.
     :return: ppi_network Pandapipes network with new column inside pipe DataFrame and with ID connecting pipes to possibly existent loops/cycles
     :return: cycle either True if cycle is found or False if no cycle is found.
     """
@@ -738,10 +782,67 @@ def check_for_cycle(
         for n, c in enumerate(cyclelist_sorted):
             ppi_network.pipe.loc[(ppi_network.pipe['from_junction'].isin(c) & ppi_network.pipe['to_junction'].isin(c)), 'loop'] = n
 
+    if radial_sink_attributes is not None:
+        from geoppi.suitable_network_routing import sum_attrs_along_shortest_paths
+
+        # Preserve parallel pipes and self-loops, which must never be classified as bridges.
+        graph = nx.MultiGraph()
+        active_nodes = set(ppi_network.junction.index[ppi_network.junction.in_service])
+        graph.add_nodes_from(active_nodes)
+        for component_name in ('pipe', 'valve', 'heat_exchanger', 'flow_control'):
+            component = ppi_network.get(component_name, pd.DataFrame())
+            for idx, row in component.iterrows():
+                if not row.get('in_service', True):
+                    continue
+                if component_name == 'valve' and define_loops_with_opened_valves and not row.opened:
+                    continue
+                u, v = row.from_junction, row.to_junction
+                if u not in active_nodes or v not in active_nodes:
+                    continue
+                # Geometric pipe length has priority over hydraulic equivalent length.
+                geometry = row.get('geometry')
+                length = (geometry.length if geometry is not None and hasattr(geometry, 'length')
+                          else row.get(length_attr, 0) * (1000 if length_attr == 'length_km' else 1))
+                if not np.isfinite(length) or length < 0:
+                    raise ValueError('Graph lengths must be finite and nonnegative.')
+                graph.add_edge(u, v, key=(component_name, idx), weight=length)
+
+        producers = set()
+        for component_name in ('ext_grid', 'source'):
+            for _, row in ppi_network.get(component_name, pd.DataFrame()).iterrows():
+                if row.get('in_service', True) and row.junction in graph:
+                    producers.add(row.junction)
+        if not producers:
+            raise ValueError('Radial classification requires active feed-line producers.')
+
+        ppi_network.pipe['is_radial'] = False
+        ## A bridge is a producer connection precisely when both separated sides contain producers.
+        # This ensures only those pipes are markes as radial if they are not inside a direct connection between multiple producers (and can be supplied by more than one producer node)
+        for u, v in list(nx.bridges(graph)):
+            key = next(iter(graph[u][v]))
+            attributes = graph[u][v][key].copy()
+            graph.remove_edge(u, v, key)
+            side_u = nx.node_connected_component(graph, u)
+            side_v = nx.node_connected_component(graph, v)
+            graph.add_edge(u, v, key=key, **attributes)
+            if key[0] == 'pipe' and bool(producers & side_u) != bool(producers & side_v):
+                ppi_network.pipe.at[key[1], 'is_radial'] = True
+
+        sinks = ppi_network.sink.loc[ppi_network.sink.in_service]
+        reachable = nx.multi_source_dijkstra_path_length(graph, producers, weight='weight')
+        if not sinks.junction.isin(reachable).all():
+            raise ValueError('Active consumers must be connected to an active producer.')
+        for output, values in radial_sink_attributes.items():
+            totals = values.reindex(sinks.index).groupby(sinks.junction).sum().to_dict()
+            graph, edge_values = sum_attrs_along_shortest_paths(
+                graph, startNodes=sorted(producers), endNodes=list(totals), weight='weight',
+                output_attr=output, dictAttrsEndNodes=totals)
+            ppi_network.pipe[output] = [edge_values.get(('pipe', idx), 0) for idx in ppi_network.pipe.index]
+
     return(ppi_network, cycle)
 
 def update_ppi_results(
-        net, # pandapipes network
+        net: ppi.pandapipesNet, # pandapipes network
         user_pf_options:dict = None,
         respectHeight:bool = False,
         fluidProperties:dict = {'rho':1000, 'cp':4190, 'nu':0.413e-06},

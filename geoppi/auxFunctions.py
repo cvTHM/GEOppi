@@ -220,7 +220,7 @@ def assign_attr_by_max_intersection_area(gp1:gp.GeoDataFrame, gp_source:gp.GeoDa
     # Remove attributes which already exist in gp1
     ex_attr = [at for at in attr if at in gp1.columns]
     if len(ex_attr) > 0:
-        print(f'\nAttributes {ex_attr} already contained in gp1. Columns are dropped and overwritten.')
+        _print_info(f'\nAttributes {ex_attr} already contained in gp1. Columns are dropped and overwritten.')
 
     gp1 = gp1.copy()
     gp1.drop(columns=ex_attr, inplace=True, errors="ignore")
@@ -343,7 +343,7 @@ def assign_attr_by_max_intersection_area_agg(
     # --- Remove existing attributes in gp1 ---
     ex_attr = [a for a in attr if a in gp1.columns]
     if ex_attr:
-        print(f'Attributes {ex_attr} already in gp1 → overwritten')
+        _print_info(f'Attributes {ex_attr} already in gp1 → overwritten')
         gp1 = gp1.drop(columns=ex_attr)
 
     # --- Precompute source areas (important for performance!) ---        
@@ -360,7 +360,7 @@ def assign_attr_by_max_intersection_area_agg(
     matches = []
 
     # --- Loop over gp_source geometries ---
-    print(f"\n... Processing objects from source GeoDataFrame")
+    _print_info(f"\n... Processing objects from source GeoDataFrame")
     for idx, geom in tqdm(zip(gp_source.index, gp_source.geometry), total = len(gp_source.index)):
 
         # Step 1: bounding box preselection
@@ -409,7 +409,7 @@ def assign_attr_by_max_intersection_area_agg(
     df_matches = pd.DataFrame(matches)
 
     if df_matches.empty:
-        print("No intersections found after applying share threshold.")
+        _print_info("No intersections found after applying share threshold.")
         return gp1
 
     # --- Aggregate attributes by gp1 polygon ---
@@ -456,7 +456,7 @@ def calc_intersection_area(
     # Prepare result array
     result = np.zeros(len(gp1))
 
-    print("\n... Processing gp1 geometries")
+    _print_info("\n... Processing gp1 geometries")
 
     for i, (_, geom) in enumerate(tqdm(zip(gp1.index, gp1.geometry), total=len(gp1))):
 
@@ -545,7 +545,7 @@ def create_circumferential_points(polygons:gp.GeoDataFrame, distance = None, npo
     bounds = polygons[['geometry']].copy()
     bounds['geometry'] = bounds.geometry.boundary
    
-    print('\n### Generating circumferential points ... ###\n')
+    _print_info('\n### Generating circumferential points ... ###\n')
     bounds['circumferentialPoints'] = bounds.geometry.apply(lambda x: create_point_splitter_npoints(x, npoints = npoints, distance = distance, lmin = lmin))  
 
     points = gp.GeoDataFrame(bounds[['circumferentialPoints']].rename(columns = {'circumferentialPoints':'geometry'}), geometry = 'geometry')
@@ -633,7 +633,7 @@ def closest_objects_to_points(points:gp.GeoDataFrame, geomObjects:gp.GeoDataFram
 
     else:
         maxDist = np.ones(points.shape[0]) * defaultDist
-        print('\n### No array for maximum searching distance is defined. Using default value of {} m. ###'.format(defaultDist))
+        _print_info('\n### No array for maximum searching distance is defined. Using default value of {} m. ###'.format(defaultDist))
 
     # Initialisation of output
     result = []
@@ -642,7 +642,7 @@ def closest_objects_to_points(points:gp.GeoDataFrame, geomObjects:gp.GeoDataFram
     # Initialise parameters for distance search
     INFTY = 1000000000000
 
-    print('\n### Generating rtree... ###')
+    _print_info('\n### Generating rtree... ###')
     idx = geomObjects.sindex
 
     for ix, r in tqdm(points.iterrows(), total = points.shape[0], desc = 'Snapping in pBox...'):
@@ -740,7 +740,7 @@ def calc_thermalLoss_pipe(
             return qloss
 
     else:
-        print(f"\nnet.res_pipe is not found...")
+        _print_info(f"\nnet.res_pipe is not found...")
         if inplace:
             return net
         else:
@@ -944,8 +944,8 @@ def measure_street_width(
     axis_geoms = _flatten_lines(axis_lines.geometry)
     axis_tree  = STRtree(axis_geoms) if axis_geoms else None
 
-    print(f"\n... Starting measurement with {len(fan_angles)} ray(s) per point")
-    print(f"... Fan angles in use: {np.round(fan_angles, 1)}")
+    _print_info(f"\n... Starting measurement with {len(fan_angles)} ray(s) per point")
+    _print_info(f"... Fan angles in use: {np.round(fan_angles, 1)}")
 
     profile_rows, line_rows = [], []
 
@@ -1011,16 +1011,16 @@ def measure_street_width(
     # ---- optional post-filters ----
 
     if overlap_threshold > 0 and len(lines_gdf):
-        print("... Applying overlap filter")
+        _print_info("... Applying overlap filter")
         before = len(lines_gdf)
         profile_gdf, lines_gdf = _filter_overlap(profile_gdf, lines_gdf)
-        print(f"    removed: {before - len(lines_gdf)}")
+        _print_info(f"    removed: {before - len(lines_gdf)}")
 
     if min_boundary_angle > 0 and len(lines_gdf):
-        print(f"... Applying boundary-angle filter (>= {min_boundary_angle} deg)")
+        _print_info(f"... Applying boundary-angle filter (>= {min_boundary_angle} deg)")
         before = len(lines_gdf)
         profile_gdf, lines_gdf = _filter_boundary_angle(profile_gdf, lines_gdf)
-        print(f"    removed: {before - len(lines_gdf)}")
+        _print_info(f"    removed: {before - len(lines_gdf)}")
 
     # Transfer results with narrowest passage to original line DataFrame
     axis_lines["narrowPassage_m"] = profile_gdf.groupby(by = "strasse_id").agg({"breite_m":"min"})
@@ -1098,7 +1098,7 @@ def detect_lines_in_narrow_passages(
     ## Data preparation
     # Merge all touching/overlapping polygons to reduce number of processed polygons
     if merge_touching_polygons:
-        print(f'\n... Merging touching/overlapping polygons\n')
+        _print_info(f'\n... Merging touching/overlapping polygons\n')
         polygons = qweights_wrapper(polygons, col = 'qWeight')
         polygons = polygons.dissolve(by = 'qWeight', aggfunc = 'first')
 
@@ -1337,7 +1337,7 @@ def split_lines_at_length(
             res = split_lines_at_points(pip['geometry'], splitpoints) if splitpoints is not None else pip['geometry']
         
         except:
-            print('Stop')
+            _print_info('Stop')
 
         objs += [n for n in res.geoms]
 
@@ -1393,7 +1393,7 @@ def extractRasterValsAtPoints(
 
     if buff_distance <= min(x,y):
         buff_distance_edited = 1.5 * min(x,y)
-        print('\n### Buffer distance is extended from %f.2 to %f.2 because min. raster side length is %f.2 ###' % (buff_distance, buff_distance_edited, min(x,y)))
+        _print_info('\n### Buffer distance is extended from %f.2 to %f.2 because min. raster side length is %f.2 ###' % (buff_distance, buff_distance_edited, min(x,y)))
     else:
         buff_distance_edited = buff_distance
 
@@ -1426,7 +1426,7 @@ def match_polygons_to_points_by_intersection(
     # Plausbility checks       
     if 'index_right' in polygons.columns:
         polygons.drop(columns = 'index_right', inplace = True)
-        print('\n### Attention! Existing column "index_right" found in polygons DataFrame. It is overwritten. ###')
+        _print_info('\n### Attention! Existing column "index_right" found in polygons DataFrame. It is overwritten. ###')
 
     if 'geometry' not in attributes:
         attributes.append('geometry')
@@ -1451,14 +1451,14 @@ def match_polygons_to_points_by_intersection(
 
     polygons.drop(columns = 'indexLeftTemp', inplace = True)
 
-    print('\n### Function "match_polygons_to_points_by_intersection": %.0f of %.0f polygons are found with matching points. ###' % (len(polygons[~polygons['index_right'].isnull()]), len(polygons)))
+    _print_info('\n### Function "match_polygons_to_points_by_intersection": %.0f of %.0f polygons are found with matching points. ###' % (len(polygons[~polygons['index_right'].isnull()]), len(polygons)))
 
     # Find polygons with multiple matches for points
     multipleMatches = poly.groupby(by = 'indexLeftTemp').transform('count')
     multipleMatches.rename(columns = {'index_right':'matches'}, inplace = True)
 
     if len(multipleMatches[multipleMatches['matches'] > 1]) > 0:
-        print('\n### Polygons with multiple results for matching points by intersection are: ', multipleMatches[multipleMatches['matches'] > 1],' ###')
+        pass  # No tabular console output.
 
     return polygons
 
@@ -1662,7 +1662,7 @@ def get_dict_from_aggregated_groups(
     """
 
     if func not in ('max', 'mean', 'min'):
-        print('\n### Please choose proper function for aggregation of grouped values. ###')
+        _print_info('\n### Please choose proper function for aggregation of grouped values. ###')
         return
 
     df['newCol'] = df.groupby(by = groupCol)[val].transform(func)
@@ -1743,7 +1743,7 @@ def translate_element_geometries(
 
     # Plausibility checks
     if not hasattr(net, element_type):
-        print(f'\n### Specified network element type {element_type} not included in network. Aborting... ###')
+        _print_info(f'\n### Specified network element type {element_type} not included in network. Aborting... ###')
     else:
 
         if elementIdx is None:
@@ -1751,12 +1751,12 @@ def translate_element_geometries(
 
         # Update geometry
         if 'geometry' not in net[element_type]:
-            print(f'\n### Column "geometry" with shapely geometry information not included in network element {element_type}. ###')
+            _print_info(f'\n### Column "geometry" with shapely geometry information not included in network element {element_type}. ###')
             updatedGeometry = False
 
         else:
             net[element_type].loc[elementIdx, 'geometry'] = gp.GeoSeries(net[element_type].loc[elementIdx, 'geometry']).translate(trans[0], trans[1], 0)
-            print(f'\n### shapely.geometry information in network component {element_type} updated/trasnlated. ###\n')
+            _print_info(f'\n### shapely.geometry information in network component {element_type} updated/trasnlated. ###\n')
 
         # Update geodata
         if hasattr(net, element_type+'_geodata'):
@@ -1768,7 +1768,7 @@ def translate_element_geometries(
             if element_type == 'pipe':
                 net[element_type+'_geodata']['coords'] = net[element_type+'_geodata'].apply(lambda x: [tuple(np.array(x['coords'][k]) + np.array(trans)) for k in range(len(x['coords']))] if x.name in elementIdx else x['coords'], axis = 1)
             
-            print(f'\n### Columns in {element_type}_geodata with geometry information for pandapipes element {element_type} are updated. ###')
+            _print_info(f'\n### Columns in {element_type}_geodata with geometry information for pandapipes element {element_type} are updated. ###')
 
 ### *--- Functions for pressure loss calculations ---*
 def func_nikuradse(
@@ -2229,3 +2229,39 @@ def _dual_to_gdf(net):
     gdf_edges = gp.GeoDataFrame(list(edge_data))
     gdf_edges.crs = net.graph["crs"]
     return gdf_edges
+
+
+def simultaneity_rh(n_buildings: float) -> float:
+    """Return the default space-heating simultaneity factor.
+
+    :param n_buildings: float number of downstream buildings.
+    :return: constant factor 1.
+    """
+    return 1.0
+
+
+def simultaneity_DHW(n_buildings: float) -> float:
+    """Return the domestic-hot-water factor without clipping at one.
+
+    :param n_buildings: float number of downstream buildings.
+    :return: 1.264 * n_buildings**(-0.82), or zero for no buildings.
+    """
+    return max(0.05, min(1,1.264 * n_buildings ** (-0.82))) if n_buildings > 0 else 0.0
+
+
+def _print_info(*values: object, sep: str = ' ', end: str = '\n',
+                file=None, flush: bool = False) -> None:
+    """Print one consistently framed informational message.
+
+    :param values: objects forming the informational text, as for builtin print.
+    :param sep: str separator between message parts.
+    :param end: str output terminator.
+    :param file: optional writable text stream; None uses standard output.
+    :param flush: bool force the stream to flush.
+    """
+    border = '=' * 10
+    # Strip historic framing only at the boundaries; keep the actual message intact.
+    message = (' ' if sep is None else sep).join(str(value) for value in values).strip(' \t\r\n#')
+    if message.startswith('...'):
+        message = message[3:].lstrip()
+    print(f'\n{border}\n... {message}\n{border}', end=end, file=file, flush=flush)

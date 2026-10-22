@@ -1,7 +1,8 @@
-
 # -*- coding: utf-8 -*-
 
 ### Imports
+from geoppi.auxFunctions import _print_info
+from typing import Optional
 
 import logging
 import geopandas as gp
@@ -41,7 +42,7 @@ def create_connection_lines(
     cs = lines.crs
     if cs != polys.crs:
         polys = polys.copy().to_crs(cs)
-        print(f'\nAttention! Polygons and lines do not share same crs!')
+        _print_info(f'\nAttention! Polygons and lines do not share same crs!')
 
     minOffset_connectionLines = 0.001
 
@@ -164,7 +165,7 @@ def assign_default_values_ppi(
     types_implemented = ['junction', 'pipe', 'sink', 'valve', 'heat_consumer']
 
     if type not in types_implemented:
-        print(f'### Attention! Please provide proper type from {types_implemented}. Aborting ...###')
+        _print_info(f'### Attention! Please provide proper type from {types_implemented}. Aborting ...###')
         return()
 
     if drop_old_cols:
@@ -196,10 +197,16 @@ def assign_default_values_ppi(
         }
 
     if type == 'pipe':
+        # Keep legacy and current pandapipes names synchronized before adding defaults.
+        # Prefer an explicitly supplied current-name value when both columns exist.
+        if 'u_w_per_m2k' in gdf.columns:
+            gdf['alpha_w_per_m2k'] = gdf['u_w_per_m2k']
+        elif 'alpha_w_per_m2k' in gdf.columns:
+            gdf['u_w_per_m2k'] = gdf['alpha_w_per_m2k']
 
         # Assign default value for line length if no geometry is provided
         if 'geometry' not in gdf.columns:
-            print('\n### Column "geometry" could not be found in gdf.columns. Length values are set to default value and do not represent\nactual geometric properties of lines. ###')
+            _print_info('\n### Column "geometry" could not be found in gdf.columns. Length values are set to default value and do not represent\nactual geometric properties of lines. ###')
             gdf['length_m'] = 1 
         else:
             gdf['length_m'] = gdf['geometry'].length
@@ -219,7 +226,8 @@ def assign_default_values_ppi(
             'length_km':gdf['length_m'] / (1e03),
             'diameter_m':[0.05],
             'k_mm':[0.0469],
-            'alpha_w_per_m2k':[1.433506]
+            'alpha_w_per_m2k':[1.433506],
+            'u_w_per_m2k':[1.433506]
         }
 
     if type == 'sink':
@@ -256,7 +264,7 @@ def assign_default_values_ppi(
             existing_cols += [attr]
 
     if len(existing_cols) > 0:
-        print(f'\n### The following columns were found in the provided gdf {type} and are NOT REPLACED with default values:\n{existing_cols} ###\n')
+        _print_info(f'\n### The following columns were found in the provided gdf {type} and are NOT REPLACED with default values:\n{existing_cols} ###\n')
 
     if tidy_up:
         gdf = gdf[[n for n in dict_attr_val.keys()] + ['geometry']]
@@ -369,10 +377,10 @@ def assignJunctionsToLines(
 
     # Check if all junctions are connected to a pipe
     if len(set(list(np.concatenate((lines[FromToAttributes[0]].values,lines[FromToAttributes[1]].values))))) - len(junctions) != 0:
-        print('### Warning! There are unconnected junctions! ###')
+        _print_info('### Warning! There are unconnected junctions! ###')
 
     else:
-        print('\n### The set of start- and end-junctions of all pipes coincides with the total sum of created junctions. Continuing... ###\n')
+        _print_info('\n### The set of start- and end-junctions of all pipes coincides with the total sum of created junctions. Continuing... ###\n')
 
     
     return lines
@@ -426,7 +434,7 @@ def create_basic_network_topology(
 
     # Round to 3 decimals to reduce global precision and simplify junction snapping
     lines.geometry = lines.geometry.apply(lambda x: round_coords_2D(geom = x, ndigits = 3))
-    print(f'\n... Attention! Global precision of line coordinates is limited to 3 decimal digits!')
+    _print_info(f'\n... Attention! Global precision of line coordinates is limited to 3 decimal digits!')
     
     ### Geometric operations ###
 
@@ -443,7 +451,7 @@ def create_basic_network_topology(
 
     lines.reset_index(drop = True, inplace = True)
 
-    print('######### Assignment of junctions to pipes DONE #########') 
+    _print_info('######### Assignment of junctions to pipes DONE #########')
     
     
     return(lines, junctions)
@@ -559,7 +567,7 @@ def insertValvesInLines(
                 valves_out.loc[idx, FromToAttributes[1]] = new_junctions.index[1]
 
         if len(original_idx_line_multiple_valves) > 0:
-            print('\n### Attention! Multiple valves have been found to intersect with lines with the following original indices:\n',
+            _print_info('\n### Attention! Multiple valves have been found to intersect with lines with the following original indices:\n',
                 'Line indices: ' + str(original_idx_line_multiple_valves) + '\n',
                 'The function is re-run in order to correctly separate all lines. ###\n')
 
@@ -677,7 +685,7 @@ def create_ppi_network_components(
         if (components[cc] is not None):
             if (not components[cc].empty):
 
-                print('Modelling of ' + cc)
+                _print_info('Modelling of ' + cc)
 
                 ### Junctions ###
                 if cc == 'junctions':
@@ -702,7 +710,7 @@ def create_ppi_network_components(
                         for val in dic[cc]:
                             
                             if val not in components[cc].columns:
-                                print('\n### Attention! Attribute ' + str(val) + ' not found in '+ str(cc) + ' columns.\n',
+                                _print_info('\n### Attention! Attribute ' + str(val) + ' not found in '+ str(cc) + ' columns.\n',
                                         'Skipping this attribute. ###\n')                            
                                 continue
 
@@ -718,6 +726,13 @@ def create_ppi_network_components(
                     if ('geometry' in components[cc].columns) & ('geodata' not in components[cc].columns):
                         components[cc] = geodata_from_geometry(components[cc], typ = 'line')
 
+                    # Select the keyword supported by the installed pandapipes version.
+                    # Both aliases are stored below, regardless of the constructor API.
+                    import inspect
+                    htc_column = 'u_w_per_m2k' if 'u_w_per_m2k' in components[cc] else 'alpha_w_per_m2k'
+                    htc_values = list(components[cc][htc_column])
+                    htc_keyword = ('u_w_per_m2k' if 'u_w_per_m2k' in inspect.signature(
+                        ppi.create_pipes_from_parameters).parameters else 'alpha_w_per_m2k')
                     ppi.create_pipes_from_parameters(
                         net,
                         from_junctions=list(components[cc]['from_junction']),
@@ -725,7 +740,7 @@ def create_ppi_network_components(
                         length_km=list(components[cc]['length_km']),
                         diameter_m=list(components[cc]['diameter_m']),
                         k_mm=list(components[cc]['k_mm']),
-                        alpha_w_per_m2k=list(components[cc]['alpha_w_per_m2k']),
+                        **{htc_keyword: htc_values},
                         loss_coefficient=list(components[cc]['loss_coefficient']),
                         sections=list(components[cc]['sections']),
                         geodata=list(components[cc]['geodata']),
@@ -738,7 +753,7 @@ def create_ppi_network_components(
                     if cc in list(dic.keys()):
                         for val in dic[cc]:
                             if val not in components[cc].columns:
-                                print('\n### Attention! Attribute ' + str(val) + ' not found in '+ str(cc) + ' columns.\n',
+                                _print_info('\n### Attention! Attribute ' + str(val) + ' not found in '+ str(cc) + ' columns.\n',
                                         'Skipping this attribute. ###\n')                            
                                 continue
 
@@ -746,6 +761,10 @@ def create_ppi_network_components(
                                 dtyp = components[cc][val].dtype
                                 net.pipe[val] = list(components[cc][val])
                                 net.pipe[val] = net.pipe[val].astype(dtyp)
+
+                    # Assign after custom attributes so both aliases always agree.
+                    net.pipe['alpha_w_per_m2k'] = htc_values
+                    net.pipe['u_w_per_m2k'] = htc_values
 
                 ### Valves ###
                 if cc == 'valves':
@@ -764,7 +783,7 @@ def create_ppi_network_components(
                     if cc in list(dic.keys()):
                         for val in dic[cc]:
                             if val not in components[cc].columns:
-                                print('### Attention! Attribute ' + str(val) + ' not found in '+ str(cc) + ' columns.\n',
+                                _print_info('### Attention! Attribute ' + str(val) + ' not found in '+ str(cc) + ' columns.\n',
                                         'Skipping this attribute. ###')                            
                                 continue
 
@@ -790,7 +809,7 @@ def create_ppi_network_components(
                     if cc in list(dic.keys()):
                         for val in dic[cc]:
                             if val not in components[cc].columns:
-                                print('\n### Attention! Attribute ' + str(val) + ' not found in '+ str(cc) + ' columns.\n',
+                                _print_info('\n### Attention! Attribute ' + str(val) + ' not found in '+ str(cc) + ' columns.\n',
                                         'Skipping this attribute. ###\n')                            
                                 continue
 
@@ -901,7 +920,7 @@ def create_ppi_network_components(
                         for val in dic[cc]:
                             
                             if val not in components[cc].columns:
-                                print('\n### Attention! Attribute ' + str(val) + ' not found in '+ str(cc) + ' columns.\n',
+                                _print_info('\n### Attention! Attribute ' + str(val) + ' not found in '+ str(cc) + ' columns.\n',
                                         'Skipping this attribute. ###\n')                            
                                 continue
 
@@ -940,7 +959,7 @@ def create_ppi_network_components(
                         for val in dic[cc]:
                             
                             if val not in components[cc].columns:
-                                print('\n### Attention! Attribute ' + str(val) + ' not found in '+ str(cc) + ' columns.\n',
+                                _print_info('\n### Attention! Attribute ' + str(val) + ' not found in '+ str(cc) + ' columns.\n',
                                         'Skipping this attribute. ###\n')                            
                                 continue
 
@@ -1012,7 +1031,7 @@ def create_ppi_network(
                 **components
                 )    
 
-        print('\n### Pandapipes network for one-directional flow (feed line only) is created.\n',
+        _print_info('\n### Pandapipes network for one-directional flow (feed line only) is created.\n',
               'Junctions, pipes, valves are created.\n',
               'Consumers/buildings are modelled as mass flow sinks.\n',
               'Production sites are modelled as external grids (peak load producer) or as mass flow sources. ###\n')
@@ -1066,14 +1085,14 @@ def create_ppi_network(
 
         # Create dictionaries for matching junctions between feed line and reflux line (symmetric topology) and update them as 'to_junction' attribute in heat_consumers
         if len(consumerFeedLineJunctionIdx) == 0:
-            print('\n### No iterable for feed line junction indices of consumers is provided. ###')
+            _print_info('\n### No iterable for feed line junction indices of consumers is provided. ###')
 
             if hasattr(net, 'sink'):
                 consFeedIdx = net.sink['junction']
-                print('\n### Information about connected feed line junctions is taken from provided DataFrame of sinks in feed line network. ###')
+                _print_info('\n### Information about connected feed line junctions is taken from provided DataFrame of sinks in feed line network. ###')
 
             else:
-                print('\n### No sinks provided for pandapipes network from which to draw information on feed line junction indices. Aborting ...###')
+                _print_info('\n### No sinks provided for pandapipes network from which to draw information on feed line junction indices. Aborting ...###')
                 return net
 
         else:
@@ -1118,11 +1137,11 @@ def create_ppi_network(
               Consumers/buildings are modelled as heat exchangers + mass flow controllers (heat_consumers).\n \
               Production sites are modelled as circ_pump_pressure (peak load producer) or as circ_pump_mass + flow controllers (base load producer). ###\n'
 
-        print(textstr)
+        _print_info(textstr)
         return(net_cpl)
     
     else:
-        print('\n### Attention! Please choose proper modelling type.\n',
+        _print_info('\n### Attention! Please choose proper modelling type.\n',
               '"feed_line" and "feed_and_reflux_line" are valid entries.\n',
               'Aborting... ###\n')
 
@@ -1189,7 +1208,7 @@ def create_ppi_producers_from_GIS_data(
 
     ### Differ between modeling types: "feed_line" and "feed_and_reflux_line"
     if modelling_type == 'feed_line':
-        print('\n### Peak load producers are modelled as external grids.\n \
+        _print_info('\n### Peak load producers are modelled as external grids.\n \
               Base load producers are modelled as mass flow sources. ###')
         
         production_sites = assignJunctionsToBuildings(
@@ -1217,7 +1236,7 @@ def create_ppi_producers_from_GIS_data(
 
                 for val in add_cols:
                     if val not in production_sites.columns:
-                        print(f'\n### Attention! Attribute {val} not found in columns.\n \
+                        _print_info(f'\n### Attention! Attribute {val} not found in columns.\n \
                                 Skipping this attribute while creating producer with index {p.index}. ###\n')                           
                         continue
 
@@ -1240,7 +1259,7 @@ def create_ppi_producers_from_GIS_data(
 
                 for val in add_cols:
                     if val not in production_sites.columns:
-                        print(f'\n### Attention! Attribute {val} not found in columns.\n \
+                        _print_info(f'\n### Attention! Attribute {val} not found in columns.\n \
                                 Skipping this attribute while creating producer with index {p.index}. ###\n')                            
                         continue
 
@@ -1249,26 +1268,23 @@ def create_ppi_producers_from_GIS_data(
                         net.source.loc[net.source.index[-1], val] = p[val]
 
             else:
-                print('\n### Attention! Producer at index ', str(n), ' does not contain information on peak or base load characteristics. Skipping this producer. ###')
+                _print_info('\n### Attention! Producer at index ', str(n), ' does not contain information on peak or base load characteristics. Skipping this producer. ###')
 
 
 
 
         ### Printing
         if hasattr(net, 'ext_grid'):
-            print('\n### Production sites in the network are created.\n',
+            _print_info('\n### Production sites in the network are created.\n',
                 'Peak load producers are created as follows (' + str(int(len(net.ext_grid))) + ' in total):\n\n')
-            print(net.ext_grid)
-            print('\n')
         
         if hasattr(net, 'source'):
-            print('\nBase load producers are created as follows (' + str(int(counter_baseload)) + ' in total):\n\n')
-            print(net.source.iloc[-counter_baseload:])
+            _print_info('\nBase load producers are created as follows (' + str(int(counter_baseload)) + ' in total):\n\n')
 
 
 
     elif modelling_type == 'feed_and_reflux_line':
-        print('\n### Peak load producers are modelled as circ_pump_pressure.\n \
+        _print_info('\n### Peak load producers are modelled as circ_pump_pressure.\n \
                 Base load producers are modelled as heat_exchangers + flow_controller. ###')
         
         production_sites = assignJunctionsToBuildings(
@@ -1309,7 +1325,7 @@ def create_ppi_producers_from_GIS_data(
                 
                 for val in add_cols:
                     if val not in production_sites.columns:
-                        print(f'\n### Attention! Attribute {val} not found in columns.\n \
+                        _print_info(f'\n### Attention! Attribute {val} not found in columns.\n \
                                 Skipping this attribute while creating producer with index {p.index}. ###\n')                           
                         continue
 
@@ -1337,7 +1353,7 @@ def create_ppi_producers_from_GIS_data(
 
                 for val in add_cols:
                     if val not in production_sites.columns:
-                        print(f'\n### Attention! Attribute {val} not found in columns.\n \
+                        _print_info(f'\n### Attention! Attribute {val} not found in columns.\n \
                                 Skipping this attribute while creating producer with index {p.index}. ###\n')                       
                         continue
 
@@ -1347,22 +1363,20 @@ def create_ppi_producers_from_GIS_data(
                         net.heat_consumer.loc[net.heat_consumer.index[-1], val] = p[val]
 
             else:
-                print('\n### Attention! Producer at index ', str(n), ' does not contain information on peak or base load characteristics. Skipping this producer. ###')
+                _print_info('\n### Attention! Producer at index ', str(n), ' does not contain information on peak or base load characteristics. Skipping this producer. ###')
 
         ### Printing
         if hasattr(net, 'circ_pump_pressure'):
-            print('\n### Production sites in the network are created.\n',
+            _print_info('\n### Production sites in the network are created.\n',
                 'Peak load producers are created as follows (' + str(int(len(net.circ_pump_pressure))) + ' in total):\n\n')
-            print(net.circ_pump_pressure)
-            print('\n')
         
         if hasattr(net, 'heat_consumer'):
-            print('\nBase load producers are created as follows (' + str(int(counter_baseload)) + ' in total):\n\n')
+            _print_info('\nBase load producers are created as follows (' + str(int(counter_baseload)) + ' in total):\n\n')
             if counter_baseload != 0:
-                print(net.heat_consumer.iloc[-counter_baseload:])
+                pass  # No tabular console output.
 
     elif modelling_type == 'feed_and_reflux_line_circPumps':
-        print('\n### Peak load producers are modelled as circ_pump_pressure.\n \
+        _print_info('\n### Peak load producers are modelled as circ_pump_pressure.\n \
                 Base load producers are modelled as circ_pump_mass + downstream flow_controller. ###')
         
         production_sites = assignJunctionsToBuildings(
@@ -1402,7 +1416,7 @@ def create_ppi_producers_from_GIS_data(
                 
                 for val in add_cols:
                     if val not in production_sites.columns:
-                        print(f'\n### Attention! Attribute {val} not found in columns.\n \
+                        _print_info(f'\n### Attention! Attribute {val} not found in columns.\n \
                                 Skipping this attribute while creating producer with index {p.index}. ###\n')                            
                         continue
 
@@ -1418,11 +1432,11 @@ def create_ppi_producers_from_GIS_data(
 
                 if len(reflux_js) > 1: # Ambiguous number of reflux junctions found at this producer
                     reflux_j = reflux_j.iloc[[0]]
-                    print(f'\n### There are multiple possible reflux junctions found at base load producer {p.index} \
+                    _print_info(f'\n### There are multiple possible reflux junctions found at base load producer {p.index} \
                           . Junction {reflux_j.index} is used. ###\n')
                     
                 elif len(reflux_js) == 0:
-                    print(f'\n### No possible reflux junctions found at base load producer {p.index} \
+                    _print_info(f'\n### No possible reflux junctions found at base load producer {p.index} \
                           . Please check for proper intersection with producer geometry. ###\n')
                     continue
 
@@ -1460,7 +1474,7 @@ def create_ppi_producers_from_GIS_data(
 
                 for val in add_cols:
                     if val not in production_sites.columns:
-                        print(f'\n### Attention! Attribute {val} not found in columns.\n \
+                        _print_info(f'\n### Attention! Attribute {val} not found in columns.\n \
                                 Skipping this attribute while creating producer with index {p.index}. ###\n')                          
                         continue
 
@@ -1484,7 +1498,7 @@ def create_ppi_producers_from_GIS_data(
 
                 for val in add_cols:
                     if val not in production_sites.columns:
-                        print('\n### Attention! Attribute ' + str(val) + ' not found in columns.\n',
+                        _print_info('\n### Attention! Attribute ' + str(val) + ' not found in columns.\n',
                                 'Skipping this attribute. ###\n')                            
                         continue
 
@@ -1506,7 +1520,7 @@ def create_ppi_producers_from_GIS_data(
 
 
     else:
-        print('\n### Attention! Please choose proper modelling type.\n',
+        _print_info('\n### Attention! Please choose proper modelling type.\n',
               '"feed_line" and "feed_and_reflux_line" are valid entries.\n',
               'Aborting... ###\n')
         
@@ -1535,6 +1549,9 @@ def create_ppi_network_from_gdf(
         networkName:str = 'net1',
         networkFluid:str = 'water',
         checkUnconnectedComponents:bool = False,
+        spaceHeatingPowerAttr: Optional[str] = None,
+        hotWaterPowerAttr: Optional[str] = None,
+        buildingAddAttr: Optional[list[str]] = None,
         **kwargs
     ):
 
@@ -1555,16 +1572,46 @@ def create_ppi_network_from_gdf(
     :param producerTypeDict: dictionary for matching of producer type to attribute name in DataFrame. Values 'peak' and 'base' are differentiated in column with name of the dictionary key.
     :param producerAddAttr: list of additional attribute names which shall be added to the pandapipes network components of producers.
     
+    :param spaceHeatingPowerAttr: optional building column containing space-heating design power in kW.
+    :param hotWaterPowerAttr: optional building column containing domestic-hot-water design power in kW.
+        Supply both power names together. Values are copied to sinks (or heat consumers),
+        and names are stored in net['design_power_attrs'] for network-only pipe sizing.
+    :param buildingAddAttr: optional list of additional building columns to preserve in consumer tables.
+        These are combined with required columns and the existing automatic 'pth' selection.
+        Explicitly requested missing columns raise ValueError instead of being silently skipped.
+
     :returns: pandapipes network object
     """
 
+    # Recover configured names when extending an existing feed-line network.
+    power_attrs = (existingNetworkFeedLine.get('design_power_attrs', {}).copy()
+                   if existingNetworkFeedLine is not None else {})
+    if spaceHeatingPowerAttr is not None or hotWaterPowerAttr is not None:
+        if spaceHeatingPowerAttr is None or hotWaterPowerAttr is None:
+            raise ValueError('Supply both spaceHeatingPowerAttr and hotWaterPowerAttr.')
+        power_attrs = {'rh': spaceHeatingPowerAttr, 'DHW': hotWaterPowerAttr}
+    if buildingAddAttr is None and existingNetworkFeedLine is not None:
+        buildingAddAttr = existingNetworkFeedLine.get('building_extra_attrs', [])
+    additional_attrs = list(dict.fromkeys(list(buildingAddAttr or []) + list(power_attrs.values())))
+    if additional_attrs:
+        if buildings is None:
+            raise ValueError('Requested building attributes require a buildings layer.')
+        missing = [column for column in additional_attrs if column not in buildings.columns]
+        if missing:
+            raise ValueError(f'Missing requested building attributes: {missing}')
+    # One shared list is used at extraction and component creation to avoid losing
+    # custom columns between the GIS layer and the final pandapipes consumer table.
+    consumer_attrs = list(dict.fromkeys(
+        [heatingDemandAttr, buildings_uniqueID] + additional_attrs
+        + ([name for name in buildings.columns if 'pth' in name.lower()] if buildings is not None else [])))
+
     ### Case a): No existing feed line network is provided for creating symmetric reflux line ###
     if existingNetworkFeedLine is None:
-        print('\n### Pandapipes network (feed line only) is generated from input GeoDataFrames of network components. ###')
+        _print_info('\n### Pandapipes network (feed line only) is generated from input GeoDataFrames of network components. ###')
 
         # Plausibility check for modelling_type
         if modelling_type not in ('feed_line'):
-            print(f'\n### Attention! desired modelling_type {modelling_type} requires provided feed line network. Aborting... ###\n')
+            _print_info(f'\n### Attention! desired modelling_type {modelling_type} requires provided feed line network. Aborting... ###\n')
             return
         
         # Create basic network topology of pipes and junctions
@@ -1585,16 +1632,16 @@ def create_ppi_network_from_gdf(
             junctions = extractRasterValsAtPoints(j = junctions, raster = rasterHeight, statsType = 'min', buff_distance = 2, attrCol = 'height_m')
 
             if any(junctions['height_m'].isna()):
-                print(f'\n### Attention!: Some junctions feature None values for height attribute "height_m". Check if provided raster dataset has correct CRS. ###\n')
+                _print_info(f'\n### Attention!: Some junctions feature None values for height attribute "height_m". Check if provided raster dataset has correct CRS. ###\n')
 
         # Connect buildings to network junctions
         if buildings is not None:
             buildings_out = assignJunctionsToBuildings(buildings = buildings, junctions = junctions, junctionAttribute = 'junction')
             
             if any(buildings_out['junction'].isna()):
-                print('\n### Attention! Buildings with following unique IDs could not be matched with junction: ', str(list(buildings_out.loc[buildings_out['junction'].isna(), buildings_uniqueID])), ' ###')
+                _print_info('\n### Attention! Buildings with following unique IDs could not be matched with junction: ', str(list(buildings_out.loc[buildings_out['junction'].isna(), buildings_uniqueID])), ' ###')
             
-            sinks = buildings_out[[heatingDemandAttr, buildings_uniqueID, 'junction'] + [n for n in buildings_out.columns if any(t in n.lower() for t in ["pth", ])]].copy()
+            sinks = buildings_out[list(dict.fromkeys(consumer_attrs + ['junction']))].copy()
             sinks = sinks[~sinks['junction'].isna()].reset_index(drop = True)
 
             pipes = identify_connection_lines(
@@ -1606,7 +1653,7 @@ def create_ppi_network_from_gdf(
                 naming = ('distribution', 'houseConnection')
                 )
             
-            print(f'\n### Pandapipes network pipes receive attribute "connectionType" to discriminate between "distribution" and "connection" pipes. ###')
+            _print_info(f'\n### Pandapipes network pipes receive attribute "connectionType" to discriminate between "distribution" and "connection" pipes. ###')
             
         else:
             buildings_out = None
@@ -1630,7 +1677,7 @@ def create_ppi_network_from_gdf(
             if not isConnected:
                 pipes['subgraph'] = list(subgdfs['subgraph'])
 
-                print(f'\n### {len(set(subgdfs["subgraph"]))} unconnected networks are found in the provided line objects. Information are stored in column "subgraph" of line DataFrame. ###')
+                _print_info(f'\n### {len(set(subgdfs["subgraph"]))} unconnected networks are found in the provided line objects. Information are stored in column "subgraph" of line DataFrame. ###')
 
 
         ## Create pandapipes network for feed line
@@ -1647,7 +1694,7 @@ def create_ppi_network_from_gdf(
             dict_attributes = {
                 'pipes':['connectionType', 'nominalWidth', 'Layer', 'geometry', 'subgraph'],
                 'junctions':['Layer', 'ID', 'geometry'],
-                'sinks':['Layer', 'geometry', heatingDemandAttr, buildings_uniqueID] + [n for n in sinks.columns if any(t in n.lower() for t in ["pth", ])],
+                'sinks':list(dict.fromkeys(['Layer', 'geometry'] + consumer_attrs)),
                 'valves':['Layer', 'geometry']
             }
         )
@@ -1666,11 +1713,11 @@ def create_ppi_network_from_gdf(
 
     ### Case b): Existing feed line network is provided for creating symmetric reflux line ###    
     else:
-        print('\n### Pandapipes network (feed and reflux line) is generated from input network of feed line. ###')
+        _print_info('\n### Pandapipes network (feed and reflux line) is generated from input network of feed line. ###')
 
         # Plausibility check for modelling_type
         if modelling_type not in ('feed_and_reflux_line', 'feed_and_reflux_line_circPumps'):
-            print(f'\n### Attention! Desired modelling_type {modelling_type} should only be used for creating feed line network. The modelling_type is changed to \
+            _print_info(f'\n### Attention! Desired modelling_type {modelling_type} should only be used for creating feed line network. The modelling_type is changed to \
                   feed_and_reflux_line_circPumps by default ... ###\n')
             modelling_type = 'feed_and_reflux_line_circPumps'
 
@@ -1726,7 +1773,7 @@ def create_ppi_network_from_gdf(
             dict_attributes = {
                 'pipes':['connectionType', 'nominalWidth', 'Layer', 'ID', 'trail_ID', 'geometry'],
                 'junctions':['Layer', 'ID', 'geometry'],
-                'heat_consumers':[buildings_uniqueID, heatingDemandAttr, 'geometry', 'name'],
+                'heat_consumers':list(dict.fromkeys(['geometry', 'name'] + consumer_attrs)),
                 'valves':['Layer', 'geometry']
             }
         )
@@ -1744,4 +1791,7 @@ def create_ppi_network_from_gdf(
         net = netFeedRefluxLine.deepcopy()
 
     
+    # Persist the meaning of the custom columns with the serializable network.
+    net['design_power_attrs'] = power_attrs
+    net['building_extra_attrs'] = additional_attrs
     return net

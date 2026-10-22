@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+from geoppi.auxFunctions import _print_info
 import pandas as pd
 import geopandas as gp
 import numpy as np
@@ -46,15 +46,15 @@ def closest_lines_to_polygons(
 
     points.drop(columns = ['maxDistance'], inplace = True)
 
-    print('\n### All circumferential points around polygons are generated ###')
+    _print_info('\n### All circumferential points around polygons are generated ###')
 
     # Plausibility checks
     if len(points.geom_type.unique()) == 1:
         if not points.geom_type.unique()[0] == 'Point':
-            print('\n### Please provide point objects only. ###')
+            _print_info('\n### Please provide point objects only. ###')
             return points
     else:
-        print('\n### Please provide consistent geometry objects with only geometry type "Point". ###')
+        _print_info('\n### Please provide consistent geometry objects with only geometry type "Point". ###')
         return points    
 
     # Find closest object to each point (indicating index of closest line segment)
@@ -155,24 +155,24 @@ def sum_attributes_on_lines(
 
     if polygons_uniqueID not in polygons.columns:
         polygons[polygons_uniqueID] = np.arange(len(polygons)).astype(int)
-        print(f"\n...Unique ID {polygons_uniqueID} for polygons is added to DataFrame with consecutive numbers.")
+        _print_info(f"\n...Unique ID {polygons_uniqueID} for polygons is added to DataFrame with consecutive numbers.")
 
     if lines_uniqueID not in lines.columns:
         lines[lines_uniqueID] = np.arange(len(lines)).astype(int)
-        print(f"\n...Unique ID {lines_uniqueID} for lines is added to DataFrame with consecutive numbers.")
+        _print_info(f"\n...Unique ID {lines_uniqueID} for lines is added to DataFrame with consecutive numbers.")
     
     if spatial_distribution is not None:
         spatial_distribution[spatial_uniqueID] = np.arange(len(spatial_distribution)).astype(int)
 
         if (spatial_connection_ratio is None) | (spatial_connection_ratio not in spatial_distribution.columns):
-            print(f'\n Attribute {spatial_connection_ratio} is set to None or not found in DataFrame columns. Please provide proper attribute name in DataFrame spatial_distribution.')
+            _print_info(f'\n Attribute {spatial_connection_ratio} is set to None or not found in DataFrame columns. Please provide proper attribute name in DataFrame spatial_distribution.')
 
         polygons = assign_attr_by_max_intersection_area(gp1 = polygons, gp_source=spatial_distribution, gp1_id = polygons_uniqueID, attr=spatial_uniqueID)
 
     # Assign nearest line to polygon by matching with dictionary {polygons_uniqueID:lines_uniqueID}
     if dict_polyID_lineID is not None:
 
-        print(f"\n...Summation of chosen attributes on lines is done with matching by dictionary dict_polyID_lineID.")
+        _print_info(f"\n...Summation of chosen attributes on lines is done with matching by dictionary dict_polyID_lineID.")
 
         polygons[nearestLineAttr] = polygons[polygons_uniqueID].map(dict_polyID_lineID)
 
@@ -200,7 +200,7 @@ def sum_attributes_on_lines(
     selected_polygons = gp.GeoDataFrame()
 
     if rand_sampling:
-        print(f'\n### A randomized sampling for each poylgon in spatial_distribution is performed to define the buildings which are included in the calculation of the line density and its spatial distribution.\n The target ratio of connection is set to {int(target_connection_ratio*100)} %.')
+        _print_info(f'\n### A randomized sampling for each poylgon in spatial_distribution is performed to define the buildings which are included in the calculation of the line density and its spatial distribution.\n The target ratio of connection is set to {int(target_connection_ratio*100)} %.')
 
         # Spatial distribution of different connection ratios is desired
         if spatial_distribution is not None:
@@ -261,7 +261,7 @@ def sum_attributes_on_lines(
 
         # No spatial distribution desired - target_connection ratio applies to all polygons        
         else:
-            print(
+            _print_info(
                 '\n### Line density and its spatial distribution is calculated using every building found in the examined area and with respect to the desired connection ratio. ###')
 
             # Initializations
@@ -303,7 +303,7 @@ def sum_attributes_on_lines(
 
 
     else: # No randomized sampling
-        print(f'\n... No randomized sampling is desired. A target connection ratio of 100% is applied.')
+        _print_info(f'\n... No randomized sampling is desired. A target connection ratio of 100% is applied.')
         selected_polygons = polygons.copy()
 
     # Change back matching with spatial distribution from NA to None

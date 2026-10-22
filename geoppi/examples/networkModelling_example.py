@@ -9,6 +9,7 @@ import numpy as np
 
 from pandapipes.control import run_control
 import geoppi
+from geoppi.auxFunctions import simultaneity_rh, simultaneity_DHW
 
 from geoppi import (transfer_LoadPoint_ppi, extract_FluidProperties_ppi, get_dict_from_aggregated_groups, implement_controllers, )
 
@@ -27,7 +28,7 @@ save_network = True
 
 ### Filepaths
 # Input path
-flp = Path(r'data/exampleNetwork')
+flp = Path(__file__).resolve().parent / 'data' / 'exampleNetwork2'
 
 # output path
 flp_out = flp / Path(r'results')
@@ -37,24 +38,24 @@ if not os.path.exists(flp_out):
     print('### New directory for saving pandapipes network is created! ###')
             
 # output name
-fln_out = 'network_' + name
+fln_out = 'network_sf1_' + name
 
 # Load pipes
-pipes = gp.read_file(flp / Path('streetsRaw.gpkg')).to_crs(cs)
+pipes = gp.read_file(flp / Path('streets.gpkg')).to_crs(cs)
 pipes['name'] = np.arange(len(pipes))
 
 # Load Buildings layer
 buildings = gp.read_file(flp / Path('buildings.gpkg')).to_crs(cs)
 
 # Load valve Layer
-valves = gp.read_file(flp / ('valves.gpkg')).to_crs(cs)
+valves = None#gp.read_file(flp / ('valves.gpkg')).to_crs(cs)
 
 # Load production site layer
 producers = gp.read_file(flp / Path('producers2.gpkg')).to_crs(cs)
 
 
 # Load elevation raster layer
-dgm = rasterio.open(flp / Path('dgm.tif'))
+dgm = None#rasterio.open(flp / Path('dgm.tif'))
 
 # Load optional point layer for creating MST
 # points_MST = gp.read_file(flp / ('points_ConsumersNetworkCalc.gpkg'))
@@ -80,6 +81,19 @@ if buildings_uniqueID not in buildings.columns:
 # Define attribute containing heating demand information
 heatingDemandAttr = 'demand_use_th'
 
+# Split annual demand (kWh/a) before network creation, as specified for this example.
+spaceHeatingPowerAttr = 'design_rh_kW'
+hotWaterPowerAttr = 'design_DHW_kW'
+consumerPowerAttr = 'design_total_kW'
+buildings['demand_rh_kWh'] = buildings[heatingDemandAttr] * 0.81
+buildings['demand_DHW_kWh'] = buildings[heatingDemandAttr] * 0.19
+# Convert each annual demand with its own full-load hours to design power (kW).
+buildings[spaceHeatingPowerAttr] = buildings['demand_rh_kWh'] / 1500.0
+buildings[hotWaterPowerAttr] = buildings['demand_DHW_kWh'] / 500.0
+buildings[consumerPowerAttr] = buildings[spaceHeatingPowerAttr] + buildings[hotWaterPowerAttr]
+# Explicit extras demonstrate transfer of names without the historic 'pth' substring.
+buildingAddAttr = ['demand_rh_kWh', 'demand_DHW_kWh', consumerPowerAttr]
+
 # * --- Parameters for network pipe dimensioning ---*
 ### Network type (either "KMR" or "5GDHC")
 networkType = 'KMR'
@@ -95,7 +109,7 @@ pNetwork = 8
 # Selection of valves to be closed ("-1": all closed)
 valves_closed = [-1]
 
-# Full load hours for calculation of heating power from consumers' heating demand
+# Legacy fallback only; explicit consumer design powers below take precedence
 flh = (1700)
 
 # Define attribute name containing information about thermal power (kW) of producers in producer models
@@ -153,6 +167,9 @@ netFeed = geoppi.create_ppi_network_from_gdf(
     rasterHeight = dgm,
     buildings_uniqueID = 'build_ID',
     heatingDemandAttr = heatingDemandAttr,
+    spaceHeatingPowerAttr = spaceHeatingPowerAttr,
+    hotWaterPowerAttr = hotWaterPowerAttr,
+    buildingAddAttr = buildingAddAttr,
     networkName = 'exampleNet',
     networkFluid = fluid,
     producerTypeDict = {'Type':{'peak':'peak','base':'base'}},
@@ -162,6 +179,10 @@ netFeed = geoppi.create_ppi_network_from_gdf(
 
 
 # %% Set parameters for described load point
+# transfer_LoadPoint_ppi prepares the simulation boundary conditions and mass flows.
+# It remains necessary even when separate powers are supplied for radial sizing.
+# Radial design uses local, count-dependent diversity; the global hydraulic
+# simulation continues to use the load case prepared here.
 
 netFeed = transfer_LoadPoint_ppi(
     net = netFeed,
@@ -171,6 +192,7 @@ netFeed = transfer_LoadPoint_ppi(
     flh = flh,
     heatingDemandAttr = heatingDemandAttr,
     thermalPowerAttr = thermalPowerAttr,
+    thermalPowerAttrConsumers = consumerPowerAttr,
     baseLoadProdNaming = baseLoadProdNaming,
     check_for_mass_flow_exceeding = True
 )
@@ -197,7 +219,12 @@ netFeed = geoppi.hydraulicDimensioningNetwork_singleLoadPoint(
     frictionModel = friction_model,
     respectHeight = False,
     fluidProperties = {'rho':rho_fluid, 'cp':cp_fluid, 'nu':nu_fluid},
-    greaterWidthFinalStep={'distributionPipes':0, 'connectionPipes':0}
+    greaterWidthFinalStep={'distributionPipes':0, 'connectionPipes':0},
+    # Consumer powers and their column names are already stored in netFeed.
+    deltaT=tFeed - tReflux,
+    simultaneitySpaceHeating= simultaneity_rh,#lambda x: 1,#simultaneity_rh,
+    simultaneityHotWater=simultaneity_DHW,#lambda x: 1,#simultaneity_DHW,
+    # design_* pipe columns describe local diversified sizing, not res_pipe loads.
 )
 
 
@@ -302,6 +329,14 @@ netFeed_dimensioned.pipe = geoppi.assign_insulation_type(
     insulation_type = insulationType if networkType == 'KMR' else None
 )
 
+gp.GeoDataFrame(netFeed.pipe, geometry = "geometry").to_file(flp_out / Path(r"netFeed_simAD.gpkg"))
+# gp.GeoDataFrame(netFeed.pipe, geometry = "geometry").to_file(flp_out / Path(r"netFeed_sim1.gpkg"))
+
+
+# %%
+dfb = buildings.drop(columns = [n for n in buildings.columns if n not in ["geometry", "build_ID"]])
+
+gp.GeoDataFrame(dfb.merge(netFeed.sink, left_on="build_ID", right_on="build_ID"), geometry = "geometry").to_file(flp_out / Path(r"netFeed_simAD_buildings.gpkg"))
 
 
 # %% *--- Create complete Pandapipes network from pre-dimensioned feed line network ---*
@@ -330,6 +365,7 @@ netFeedReflux = transfer_LoadPoint_ppi(
     flh = flh,
     heatingDemandAttr = heatingDemandAttr,
     thermalPowerAttr = thermalPowerAttr,
+    thermalPowerAttrConsumers = consumerPowerAttr,
     baseLoadProdNaming = baseLoadProdNaming
 )
 
@@ -443,7 +479,6 @@ netFeedReflux = geoppi.implement_controllers(
         }
     )
 
-print(netFeedReflux.controller)
 
 # Run pipeflow with controls
 run_control(net = netFeedReflux,  max_iter = 50)
@@ -456,11 +491,11 @@ dpmin_reached, idx_dpmin = min(list(zip(netFeedReflux.res_heat_consumer['dp_bar'
 
 buildIDD = netFeedReflux.heat_consumer['build_ID'].at[idx_dpmin]
 
-print(f'\n### dpmin reached = {dpmin_reached} bar. Target value is {dpmin_target} bar; at heat_consumer with index {idx_dpmin} and build_ID = {buildIDD} ###\n')
+_print_info(f'\n### dpmin reached = {dpmin_reached} bar. Target value is {dpmin_target} bar; at heat_consumer with index {idx_dpmin} and build_ID = {buildIDD} ###\n')
 
 ###
 pmin_reached = min(netFeedReflux.res_junction['p_bar'])
-print(f'\n### pmin reached is {pmin_reached} bar. Target value is {pmin_target} bar.')
+_print_info(f'\n### pmin reached is {pmin_reached} bar. Target value is {pmin_target} bar.')
 
 ###
 import pandas as pd

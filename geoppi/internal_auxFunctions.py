@@ -1,6 +1,7 @@
 ####################### Internal auxiliary functions ######################
 ################## Not meant for publication ##############################
-
+from geoppi.auxFunctions import _print_info
+from typing import Optional
 import pandapipes as ppi
 import geopandas as gp
 import matplotlib.pyplot as plt
@@ -262,7 +263,7 @@ def implement_controllers(
         # Check for single circ pump pressure component in network
         if hasattr(net_out, 'circ_pump_pressure'):
             if (len(net_out.circ_pump_pressure) > 1) and ('circ_pump_pressure_idx' not in dpminCtrlDict.keys()):
-                print(f'\n### More than one circ_pump_pressure_component was found in the network, but no index to define the controlled component. Please provide proper index in dictionary dpminCtrlDict with key "circ_pump_pressure_idx". ###\n')
+                _print_info(f'\n### More than one circ_pump_pressure_component was found in the network, but no index to define the controlled component. Please provide proper index in dictionary dpminCtrlDict with key "circ_pump_pressure_idx". ###\n')
                 return net
             
             elif (len(net_out.circ_pump_pressure) == 1) and ('circ_pump_pressure_idx' not in dpminCtrlDict.keys()):
@@ -301,7 +302,7 @@ def implement_controllers(
         # Check for single circ pump pressure component in network
         if hasattr(net_out, 'circ_pump_pressure'):
             if (len(net_out.circ_pump_pressure) > 1) and ('circ_pump_pressure_idx' not in pminCtrlDict.keys()):
-                print(f'\n### More than one circ_pump_pressure_component was found in the network, but no index to define the controlled component. Please provide proper index in dictionary pminCtrlDict with key "circ_pump_pressure_idx". ###\n')
+                _print_info(f'\n### More than one circ_pump_pressure_component was found in the network, but no index to define the controlled component. Please provide proper index in dictionary pminCtrlDict with key "circ_pump_pressure_idx". ###\n')
                 return net
             
             elif (len(net_out.circ_pump_pressure) == 1) and ('circ_pump_pressure_idx' not in pminCtrlDict.keys()):
@@ -373,7 +374,7 @@ def implement_controllers(
 
     if 'priority_list' not in PthLimitedCtrlDict.keys():
         PthLimitedCtrlDict['priority_list'] = list(net.circ_pump_mass.index)
-        print(f'\n### Attentaion: no priority list is provided in dictionary PthLimitedCtrlDict. Alternatively, the index of the circ_pump_mass components is used as priorisation. ###\n')
+        _print_info(f'\n### Attentaion: no priority list is provided in dictionary PthLimitedCtrlDict. Alternatively, the index of the circ_pump_mass components is used as priorisation. ###\n')
 
     if 'circ_pump_mass_idxs' not in PthLimitedCtrlDict.keys():
         circ_pump_mass_idxs = net.circ_pump_mass.index
@@ -390,7 +391,7 @@ def implement_controllers(
         # Check for single circ pump pressure component in network
         if hasattr(net_out, 'circ_pump_pressure'):
             if (len(net_out.circ_pump_pressure) > 1) and ('circ_pump_pressure_idx' not in PthLimitedCtrlDict.keys()):
-                print(f'\n### More than one circ_pump_pressure_component was found in the network, but no index to define the controlled component. Please provide proper index in dictionary PthLimitedCtrlDict with key "circ_pump_pressure_idx". ###\n')
+                _print_info(f'\n### More than one circ_pump_pressure_component was found in the network, but no index to define the controlled component. Please provide proper index in dictionary PthLimitedCtrlDict with key "circ_pump_pressure_idx". ###\n')
                 return net
             
             elif (len(net_out.circ_pump_pressure) == 1) and ('circ_pump_pressure_idx' not in PthLimitedCtrlDict.keys()):
@@ -426,20 +427,44 @@ def implement_controllers(
 
 
 def transfer_LoadPoint_ppi(
-    net, # Pandapipes network
-    fluid:str = None,
+    net: ppi.pandapipesNet, # Pandapipes network
+    fluid: Optional[str] = None,
     tFeed:float = 273.15 + 70, # K
     tReflux:float = 273.15 + 40, # K
     pNetwork:float = 10,
     text_pipes:float = 283.15,
     flh:float = 1700,
     heatingDemandAttr:str = 'demand_use_th',
-    thermalPowerAttr = 'Pth_kW',
-    thermalPowerAttrConsumers:str = None,
+    thermalPowerAttr: str = 'Pth_kW',
+    thermalPowerAttrConsumers: Optional[str] = None,
     baseLoadProdNaming:str = 'prod',
     check_for_mass_flow_exceeding:bool = False,
     **kwargs
-    ):
+    ) -> ppi.pandapipesNet:
+
+    """Apply a simulation load case to the network in place.
+
+    Set fluid, temperatures, pressure and consumer/producer mass flows before
+    hydraulic simulation. This function does not select pipe diameters and does
+    not apply the downstream-building simultaneity factors used by radial sizing.
+
+    :param net: pandapipes network, modified in place and returned.
+    :param fluid: optional fluid-library name; None retains the current fluid.
+    :param tFeed: float feed temperature in K.
+    :param tReflux: float return temperature in K.
+    :param pNetwork: float pressure at peak-load producers in bar.
+    :param text_pipes: float external pipe temperature in K.
+    :param flh: float full-load hours used to convert annual demand to power.
+    :param heatingDemandAttr: str annual heat-demand column in kWh/a.
+    :param thermalPowerAttr: str output consumer and input producer power column in kW.
+    :param thermalPowerAttrConsumers: optional consumer power column in kW.
+        None uses annual demand / flh; otherwise the supplied power is used.
+        Consumer mass flow is power * 1000 / (cp * (tFeed - tReflux)).
+    :param baseLoadProdNaming: str naming pattern used to identify producers.
+    :param check_for_mass_flow_exceeding: bool limit base-load supply to demand.
+    :param kwargs: additional arguments retained for call compatibility.
+    :return: network with the simulation load case applied.
+    """
 
     ### Define residual constant values
     small = 1e-05
@@ -476,8 +501,8 @@ def transfer_LoadPoint_ppi(
 
         sumSinks_mdot = np.nansum(net.sink['mdot_kg_per_s'])
 
-        print('\n### Total heating demand of consumers connected to network: %.1f MWh ###' % (net.sink[heatingDemandAttr].sum()/(1e3)))
-        print('\n### Total thermal power of consumers connected to network at load point: %.1f kW ###' % (net.sink[thermalPowerAttr].sum()))
+        _print_info('\n### Total heating demand of consumers connected to network: %.1f MWh ###' % (net.sink[heatingDemandAttr].sum()/(1e3)))
+        _print_info('\n### Total thermal power of consumers connected to network at load point: %.1f kW ###' % (net.sink[thermalPowerAttr].sum()))
 
 
     if hasattr(net, 'heat_consumer'):
@@ -499,8 +524,8 @@ def transfer_LoadPoint_ppi(
 
         net.heat_consumer['controlled_mdot_kg_per_s']           = net.heat_consumer['controlled_mdot_kg_per_s'].fillna(0)
 
-        print('\n### Total heating demand of consumers connected to network: %.1f MWh ###' % (net.heat_consumer.loc[tempMask, heatingDemandAttr].sum()/(1e3)))
-        print('\n### Total thermal power of consumers connected to network at load point: %.1f kW ###' % (net.heat_consumer.loc[tempMask, thermalPowerAttr].sum()))
+        _print_info('\n### Total heating demand of consumers connected to network: %.1f MWh ###' % (net.heat_consumer.loc[tempMask, heatingDemandAttr].sum()/(1e3)))
+        _print_info('\n### Total thermal power of consumers connected to network at load point: %.1f kW ###' % (net.heat_consumer.loc[tempMask, thermalPowerAttr].sum()))
 
     ### Set parameters for producers
     # Peak load producers
@@ -531,7 +556,7 @@ def transfer_LoadPoint_ppi(
                 ratiosSource_mdot = net.source.loc[tempMask, 'mdot_kg_per_s'] / np.nansum(net.source.loc[tempMask, 'mdot_kg_per_s'])
                 net.source.loc[tempMask, 'mdot_kg_per_s'] = (sumSinks_mdot - small) * ratiosSource_mdot
 
-                print(f'\n### The specified load point resulted in higher cumulated thermal power and mass flows of base load producers in net.source than necessary for all aggregated demands of sinks. The mass flows of source components are adapted so that no reverse flow occurs in the peak load producer ext_grid leaving the network. ###\n')
+                _print_info(f'\n### The specified load point resulted in higher cumulated thermal power and mass flows of base load producers in net.source than necessary for all aggregated demands of sinks. The mass flows of source components are adapted so that no reverse flow occurs in the peak load producer ext_grid leaving the network. ###\n')
         
         net.source['mdot_kg_per_s'] = net.source['mdot_kg_per_s'].fillna(0)
         
@@ -555,7 +580,7 @@ def transfer_LoadPoint_ppi(
                     ratiosHeatConsumers_mdot = net.heat_consumer.loc[tempMask, 'controlled_mdot_kg_per_s'] / np.nansum(net.heat_consumer.loc[tempMask, 'controlled_mdot_kg_per_s'])
                     net.heat_consumer.loc[tempMask, 'controlled_mdot_kg_per_s'] = (sumHeatConsumers_mdot - small) * ratiosHeatConsumers_mdot
 
-                    print(f'\n### The specified load point resulted in higher cumulated thermal power and mass flows of base load producers in net.heat_consumer than necessary for all aggregated demands of real heat consumers. The mass flows of base load producer components are adapted so that no reverse flow occurs in the peak load producer circ_pump_pressure as this might lead to convergence problems. ###\n')
+                    _print_info(f'\n### The specified load point resulted in higher cumulated thermal power and mass flows of base load producers in net.heat_consumer than necessary for all aggregated demands of real heat consumers. The mass flows of base load producer components are adapted so that no reverse flow occurs in the peak load producer circ_pump_pressure as this might lead to convergence problems. ###\n')
                         
             net.heat_consumer['controlled_mdot_kg_per_s']           = net.heat_consumer['controlled_mdot_kg_per_s'].fillna(0)
 
@@ -577,7 +602,7 @@ def transfer_LoadPoint_ppi(
                     # A residual flow into the feed line of the network from the circ_pump_pressure is ensured with the constant **small**
                     ratiosCircPumpMass_mdot = net.circ_pump_mass.loc[tempMask, 'mdot_flow_kg_per_s'] / np.nansum(net.circ_pump_mass.loc[tempMask, 'mdot_flow_kg_per_s'])
                     net.circ_pump_mass.loc[tempMask, 'mdot_flow_kg_per_s'] = (sumHeatConsumers_mdot - small) * ratiosCircPumpMass_mdot
-                    print(f'\n### The specified load point resulted in higher cumulated thermal power and mass flows of base loas producers in net.circ_pump_mass than necessary for all aggregated demands of heat consumers. The mass flows of circ_pump_mass components and corresponding flow_controls are adapted so that no reverse flow occurs in the peak load producer circ_pump_pressure as this might lead to convergence problems. ###\n')
+                    _print_info(f'\n### The specified load point resulted in higher cumulated thermal power and mass flows of base loas producers in net.circ_pump_mass than necessary for all aggregated demands of heat consumers. The mass flows of circ_pump_mass components and corresponding flow_controls are adapted so that no reverse flow occurs in the peak load producer circ_pump_pressure as this might lead to convergence problems. ###\n')
             
             net.circ_pump_mass['mdot_flow_kg_per_s'] = net.circ_pump_mass['mdot_flow_kg_per_s'].fillna(0)
             
@@ -752,7 +777,7 @@ def plot_Gs(G:nx.graph,
         # Hervorhebe den random_node in Rot
         nx.draw_networkx_nodes(G_copy, positions, nodelist=startNodes, node_size=nodeSize, node_color=nodeColor)
     elif plot_start_nodes and len(startNodes)==0:
-        print('\n### If start nodes shall be plotted, provide proper list of start nodes as iterable of (x,y) pairs. ###')
+        _print_info('\n### If start nodes shall be plotted, provide proper list of start nodes as iterable of (x,y) pairs. ###')
     else:
         pass
     
@@ -890,7 +915,7 @@ def animate_networkGeneration_gdf(
     
         if not os.path.exists(savePath):
             os.makedirs(savePath)
-            print(f'### New directory for saving visualization videos is created in {savePath} ###')
+            _print_info(f'### New directory for saving visualization videos is created in {savePath} ###')
 
         ani = matplotlib.animation.ArtistAnimation(fig=fig, artists=frames, interval=interval)
         ani.save(filename=savePath / Path(filename), writer="pillow", dpi = dpi)

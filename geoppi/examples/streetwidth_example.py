@@ -1,3 +1,4 @@
+from geoppi.auxFunctions import _print_info
 # %%
 
 import time
@@ -15,9 +16,7 @@ street_parcels = gp.read_file(_input / 'parcels_traffic.gpkg')
 parcels = gp.read_file(_input / 'parcels.gpkg')
 
 
-print("=" * 60)
-print("Test 1: measure_street_width")
-print("=" * 60)
+_print_info("Test 1: measure_street_width")
 
 t0 = time.time()
 
@@ -35,18 +34,15 @@ axis_lines_gdf, profile_gdf, lines_gdf = measure_street_width(
 
 t1 = time.time()
 
-print(f"Duration: {t1 - t0:.2f}s")
-print(f"Profile points: {len(profile_gdf)}")
-print(f"Measurement lines:     {len(lines_gdf)}")
+_print_info(f"Duration: {t1 - t0:.2f}s")
+_print_info(f"Profile points: {len(profile_gdf)}")
+_print_info(f"Measurement lines:     {len(lines_gdf)}")
 axis_lines_gdf.to_file(_output / 'width_street_lines.gpkg')
 profile_gdf.to_file(_output / 'width_profile.gpkg', driver = "GPKG")
 lines_gdf.to_file(_output / 'width_messlinien.gpkg', driver = "GPKG")
-print()
 
 
-print("=" * 60)
-print("Test 2: detect_lines_in_narrow_passages")
-print("=" * 60)
+_print_info("Test 2: detect_lines_in_narrow_passages")
 
 t0 = time.time()
 
@@ -62,9 +58,9 @@ result_lines, shortest_lines = detect_lines_in_narrow_passages(
 
 t1 = time.time()
 
-print(f"Duration: {t1 - t0:.2f}s")
-print(f"Lines with narrow passage: {result_lines['narrowPassage_m'].notna().sum()} / {len(result_lines)}")
-print(f"Shortest connection: {len(shortest_lines)}")
+_print_info(f"Duration: {t1 - t0:.2f}s")
+_print_info(f"Lines with narrow passage: {result_lines['narrowPassage_m'].notna().sum()} / {len(result_lines)}")
+_print_info(f"Shortest connection: {len(shortest_lines)}")
 result_lines = result_lines.drop(columns=['fid'], errors='ignore')
 result_lines.to_file(_output / 'narrow_engstellen.gpkg')
 shortest_lines.to_file(_output / 'narrow_verbindungen.gpkg')

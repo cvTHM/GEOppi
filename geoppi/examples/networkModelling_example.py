@@ -21,7 +21,7 @@ from geoppi import (transfer_LoadPoint_ppi, extract_FluidProperties_ppi, get_dic
 cs = 'EPSG:25832'
 
 # Define network name
-name = 'exampleNetwork'
+name = 'exampleNetwork2'
 
 # Select whather network shall be saved as pickle file
 save_network = True
@@ -125,7 +125,7 @@ baseLoadProdNaming = 'prod'
 dp_spec = 100
 
 # Selection of subset for nominal widths for pipes
-subsetDistribution = [50, 65, 80, 100, 125, 150, 200, 225, 250, 300, 350]
+subsetDistribution = [32, 40, 50, 65, 80, 100, 125, 150, 200, 225, 250, 300, 350]
 subsetConnection = [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 225, 300]
 
 # Desired insulation for pipes
@@ -208,6 +208,7 @@ netFeed = geoppi.hydraulicDimensioningNetwork_singleLoadPoint(
     net = netFeed,
     networkType = networkType,
     dpSpec = dp_spec,
+    thresh_percentage = [0, 0.2],
     dictNominalInnerDiameter = {'distributionPipes':dictNominalInnerDiameter, 'connectionPipes':dictNominalInnerDiameter},
     dictWallRoughness = dictWallRoughness,
     subsetDistribution = subsetDistribution,
@@ -329,7 +330,7 @@ netFeed_dimensioned.pipe = geoppi.assign_insulation_type(
     insulation_type = insulationType if networkType == 'KMR' else None
 )
 
-gp.GeoDataFrame(netFeed.pipe, geometry = "geometry").to_file(flp_out / Path(r"netFeed_simAD.gpkg"))
+# gp.GeoDataFrame(netFeed.pipe, geometry = "geometry").to_file(flp_out / Path(r"netFeed_simAD.gpkg"))
 # gp.GeoDataFrame(netFeed.pipe, geometry = "geometry").to_file(flp_out / Path(r"netFeed_sim1.gpkg"))
 
 

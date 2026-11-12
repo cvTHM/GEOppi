@@ -2,80 +2,26 @@ import pandapipes as ppi
 import numpy as np
 import pandas as pd
 import logging
-from geoppi.auxFunctions import _print_info
 from typing import Callable, Optional
+from geoppi.pipe_characteristics import nominal_to_inner_diameters_KMR, dict_k_mm_KMR
 
-from geoppi.auxFunctions import (cycleEdges, func_swameejain, func_nikuradse, simultaneity_rh, simultaneity_DHW)
+from geoppi.auxFunctions import (_print_info, cycleEdges, func_swameejain, func_nikuradse, simultaneity_rh, simultaneity_DHW)
 
 
 def hydraulicDimensioningNetwork_singleLoadPoint(
         net: ppi.pandapipesNet, # Pandapipes network
         networkType:str = 'KMR',
         dictNominalInnerDiameter:dict = {
-            'distributionPipes':{
-                    40: 41.9,
-                    50: 53.9,
-                    65: 69.7,
-                    80: 82.5,
-                    100: 107.1,
-                    125: 132.5,
-                    150: 160.3,
-                    175: 184.7,
-                    200: 210.1,
-                    225: 234.5,
-                    250: 263,
-                    300: 321.7,
-                    350: 344.4,
-                    400: 393.8,
-                    450: 444.4,
-                    500: 495.4,
-                    550: 546.2,
-                    600: 595.8
-                },
-            'connectionPipes':{
-                    10: 17.267,
-                    20: 21.7,
-                    25: 27.3,
-                    32: 36,
-                    40: 41.9,
-                    50: 53.9,
-                    65: 69.7,
-                    80: 82.5,
-                    100: 107.1,
-                    125: 132.5,
-                }
-        },
-        dictWallRoughness:dict = {
-            10: 0.0469,
-            20: 0.0469,
-            25: 0.0469,
-            32: 0.0469,
-            40: 0.0469,
-            50: 0.0469,
-            65: 0.0469,
-            80: 0.0469,
-            100: 0.0469,
-            125: 0.0469,
-            150: 0.0469,
-            175: 0.0469,
-            200: 0.0469,
-            225: 0.0469,
-            250: 0.0469,
-            300: 0.0469,
-            350: 0.0469,
-            400: 0.0469,
-            450: 0.0469,
-            500: 0.0469,
-            550: 0.0469,
-            600: 0.0469
-        },
+            "distributionPipes":nominal_to_inner_diameters_KMR,
+            "connectionPipes":nominal_to_inner_diameters_KMR},
+        dictWallRoughness:dict = dict_k_mm_KMR,
         subsetDistribution:list = [100, 150],
         subsetConnection:list = [25, 32, 40],
         connectionTypeAttr:str = 'connectionType',
         elongationFactorPipes:float = 1,
         nominalWidthAttr:str = 'nominalWidth',
         dpSpec:float = 80,
-        thresh_percentage:list = [0.4, 0.2],
+        thresh_percentage:list = [0, 0.2],
         respectHeight:bool = False,
         closedValvesIdx:list = [],
         frictionModel:str = 'swamee-jain',

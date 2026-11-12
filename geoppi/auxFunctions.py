@@ -2265,3 +2265,20 @@ def _print_info(*values: object, sep: str = ' ', end: str = '\n',
     if message.startswith('...'):
         message = message[3:].lstrip()
     print(f'\n{border}\n... {message}\n{border}', end=end, file=file, flush=flush)
+
+
+def is_connected_line_geometry(lines: gp.GeoDataFrame) -> bool:
+    """Check whether line geometries form exactly one connected network.
+
+    :param lines: GeoDataFrame of LineStrings or MultiLineStrings; attributes are ignored.
+    :return: bool, False for empty/non-line input or disconnected geometries.
+        Intersections count as connections; gaps are not snapped or buffered.
+    """
+    geometries = lines.geometry.explode(index_parts=False).reset_index(drop=True)
+    if geometries.empty or not geometries.geom_type.eq('LineString').all() or geometries.is_empty.any():
+        return False
+    # Explode multipart lines so disconnected parts cannot appear connected by row identity.
+    graph = nx.Graph()
+    graph.add_nodes_from(range(len(geometries)))
+    graph.add_edges_from(STRtree(geometries).query(geometries, predicate='intersects').T)
+    return nx.is_connected(graph)

@@ -72,10 +72,15 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
     With no configured columns, radial sizing uses simulated pipe mass flows.
 
     :param deltaT: float positive feed-minus-return temperature difference in K, required for separate powers.
+        Also used to calculate powers from final mass flows in all other pipes, including loops.
+        Without deltaT, legacy mass-flow-only sizing remains available, but these powers stay NaN.
     :param simultaneitySpaceHeating: callable taking downstream building count; default is constant 1.
     :param simultaneityHotWater: callable taking downstream building count; default is 1.264 * n**(-0.82), without clipping.
         Diversity applies only to radial pipe design flows, not to the network's sink/source simulation loads.
-        Pipe columns design_power_kW, design_mdot_kg_per_s and design_Pa_per_m describe this local design case.
+        design_power_kW retains the diversified radial design load. For all other pipes,
+        it is calculated from the final absolute mass flow, cp and deltaT (kW).
+        design_Pa_per_m describes the local radial design case. Downstream heating/hot-water
+        sums and design_mdot_kg_per_s are temporary and omitted from the returned pipe table.
 
     :returns: pandapipes network object
     """
@@ -104,6 +109,9 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
         logging.warning('\n### Selected subset of nominal widths for house connection pipes could not be found in provided dictionary of nominal widths. Aborting... ###')
         return net
     
+    if deltaT is not None and (not np.isfinite(deltaT) or deltaT <= 0):
+        raise ValueError('deltaT must be finite and positive when supplied.')
+
     ### Preparations
     # Define simulation options from input
     user_pf_options = {'mode':'hydraulics', 'friction_model':frictionModel, 'reset':True,'quit_on_inconsistency_connectivity':True}
@@ -174,11 +182,13 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
     radial_mask = net.pipe['is_radial'].to_numpy() & bool(radialSystem)
     niter = 1 if radial_mask[net.pipe.in_service.to_numpy()].all() else 50
 
+    # Reset output values to avoid retaining results from a previous dimensioning run.
+    net.pipe['design_power_kW'] = np.nan
+
     # Calculate power at design load point for pipes outside of cycles and outside direct connections between multiple producers
     if separate_powers:
         heating_factor = simultaneitySpaceHeating or simultaneity_rh
         water_factor = simultaneityHotWater or simultaneity_DHW
-        net.pipe['design_power_kW'] = np.nan
         for idx in net.pipe.index[radial_mask]:
             count = net.pipe.at[idx, 'n_buildings_downstream']
             factors = np.array([heating_factor(count), water_factor(count)]) if count > 0 else np.zeros(2)
@@ -225,7 +235,6 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
 
             if dpSpec <= 0 or not np.isfinite(dpSpec):
                 raise ValueError('dpSpec must be finite and positive.')
-            net.pipe['design_mdot_kg_per_s'] = np.nan
             net.pipe['design_Pa_per_m'] = np.nan
             for idx in net.pipe.index[radial_mask]:
                 mass_flow = (net.pipe.at[idx, 'design_power_kW'] * 1000 / (fluidProperties['cp'] * deltaT)
@@ -247,7 +256,6 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
                 net.pipe.at[idx, nominalWidthAttr] = nominal
                 net.pipe.at[idx, 'diameter_m'] = diameter_mm / 1000
                 net.pipe.at[idx, 'k_mm'] = dictWallRoughness[nominal]
-                net.pipe.at[idx, 'design_mdot_kg_per_s'] = mass_flow
                 net.pipe.at[idx, 'design_Pa_per_m'] = pressure_loss
                 new_keys[idx] = list(dictNominalInnerDiameter_red[pipe_type]).index(nominal)
 
@@ -321,6 +329,18 @@ def hydraulicDimensioningNetwork_singleLoadPoint(
         cp = fluidProperties['cp'], 
         rho = fluidProperties['rho'])
     
+    # Fill all remaining pipes (including loops and connections between producers) from
+    # the final hydraulic result. Preserve previously calculated diversified radial loads.
+    if deltaT is not None:
+        missing_power = net.pipe['design_power_kW'].isna()
+        net.pipe.loc[missing_power, 'design_power_kW'] = (
+            net.res_pipe.loc[missing_power, 'mdot_from_kg_per_s'].abs()
+            * fluidProperties['cp'] * deltaT / 1000.0)
+
+    # Retain only the combined design power, not intermediate sizing attributes.
+    net.pipe.drop(columns=['space_heating_kW_downstream', 'hot_water_kW_downstream',
+                           'design_mdot_kg_per_s'], errors='ignore', inplace=True)
+
     ### Corrections before returning values
     # Set pipes out of service that feature no mass flow
     mask0 = (abs(net.res_pipe['v_mean_m_per_s']) < 1e-12) | (net.res_pipe['v_mean_m_per_s'].isna())
@@ -776,8 +796,16 @@ def check_for_cycle(
 
         sinks = ppi_network.sink.loc[ppi_network.sink.in_service]
         reachable = nx.multi_source_dijkstra_path_length(graph, producers, weight='weight')
-        if not sinks.junction.isin(reachable).all():
-            raise ValueError('Active consumers must be connected to an active producer.')
+        disconnected = sinks.loc[~sinks.junction.isin(reachable)]
+        if not disconnected.empty:
+            # Report concrete consumers rather than hiding the physical connectivity problem.
+            # A missing building (no sink) is a separate issue reported during network creation.
+            columns = [column for column in ('name', 'junction', 'build_ID') if column in disconnected]
+            details = disconnected[columns].to_dict(orient='index')
+            raise ValueError(
+                'Active consumers must be connected to an active producer. '
+                f'Unreachable sinks (key = sink index): {details}. '
+                'Check disconnected pipe components, closed valves and inactive elements.')
         for output, values in radial_sink_attributes.items():
             totals = values.reindex(sinks.index).groupby(sinks.junction).sum().to_dict()
             graph, edge_values = sum_attrs_along_shortest_paths(

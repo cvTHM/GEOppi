@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ### Imports
-from geoppi.auxFunctions import _print_info
+from geoppi.auxFunctions import _print_info, is_connected_line_geometry
 from typing import Optional
 
 import logging
@@ -38,7 +38,11 @@ def create_connection_lines(
     :return: GeoDataFrame of all line objects (original (split at crossing junctions) + connection lines).
     """
     
-    ## Initializations    
+    # Reject disconnected input before spending time on house-connection generation.
+    if not is_connected_line_geometry(lines):
+        raise ValueError('Input street geometries must form exactly one connected network. There are unconnectable line objects. Connection-line creation aborted.')
+
+    ## Initializations
     cs = lines.crs
     if cs != polys.crs:
         polys = polys.copy().to_crs(cs)
@@ -1583,6 +1587,10 @@ def create_ppi_network_from_gdf(
     :returns: pandapipes network object
     """
 
+    # Check only the supplied geometries, before any network components are created.
+    if existingNetworkFeedLine is None and (pipes is None or not is_connected_line_geometry(pipes)):
+        raise ValueError('Input pipe geometries must form exactly one connected network. Network creation aborted.')
+
     # Recover configured names when extending an existing feed-line network.
     power_attrs = (existingNetworkFeedLine.get('design_power_attrs', {}).copy()
                    if existingNetworkFeedLine is not None else {})
@@ -1638,8 +1646,16 @@ def create_ppi_network_from_gdf(
         if buildings is not None:
             buildings_out = assignJunctionsToBuildings(buildings = buildings, junctions = junctions, junctionAttribute = 'junction')
             
-            if any(buildings_out['junction'].isna()):
-                _print_info('\n### Attention! Buildings with following unique IDs could not be matched with junction: ', str(list(buildings_out.loc[buildings_out['junction'].isna(), buildings_uniqueID])), ' ###')
+            if buildings_out['junction'].isna().any():
+                # Quantify demand excluded from the network before unmatched buildings are dropped.
+                unmatched = buildings_out.loc[buildings_out['junction'].isna()]
+                missing_demand = unmatched[heatingDemandAttr].sum()
+                unknown_demand = int(unmatched[heatingDemandAttr].isna().sum())
+                _print_info(
+                    f'Buildings without a matching junction: {unmatched[buildings_uniqueID].tolist()}. '
+                    f'Excluded known annual demand: {missing_demand:.3f} kWh; '
+                    f'buildings with unknown demand: {unknown_demand}. '
+                    'Check house connections and max_dist_connection_lines.')
             
             sinks = buildings_out[list(dict.fromkeys(consumer_attrs + ['junction']))].copy()
             sinks = sinks[~sinks['junction'].isna()].reset_index(drop = True)

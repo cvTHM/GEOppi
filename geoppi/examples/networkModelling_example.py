@@ -48,14 +48,14 @@ pipes['name'] = np.arange(len(pipes))
 buildings = gp.read_file(flp / Path('buildings.gpkg')).to_crs(cs)
 
 # Load valve Layer
-valves = None#gp.read_file(flp / ('valves.gpkg')).to_crs(cs)
+valves = gp.read_file(flp / ('valves.gpkg')).to_crs(cs)
 
 # Load production site layer
 producers = gp.read_file(flp / Path('producers2.gpkg')).to_crs(cs)
 
 
 # Load elevation raster layer
-dgm = None#rasterio.open(flp / Path('dgm.tif'))
+dgm = rasterio.open(flp / Path('dgm.tif'))
 
 # Load optional point layer for creating MST
 # points_MST = gp.read_file(flp / ('points_ConsumersNetworkCalc.gpkg'))

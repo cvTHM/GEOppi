@@ -5,78 +5,81 @@ import geopandas as gp
 import pandas as pd
 import numpy as np
 import networkx as nx
+from geoppi.auxFunctions import _print_info
+from typing import Optional
 
 from geoppi.auxFunctions import (closest_point, sort_with_permutation, gdf_to_nx, nx_to_gdf,)
 from geoppi.line_density_calculation import (closest_lines_to_polygons, )
 
 ### Functions for analysis of shortest path lengths between specified sets of start- and end nodes and summed weights
-def shortest_paths_pathweights(
-        G:nx.graph,
-        startNodes:list = None,
-        endNodes:list = None,
-        weight:str = None
-    ):
-    """
-    Function to return shortest paths as lists of visited nodes and corresponding path lengths in networkx MultiGraph objects.\n
-
-    :param G: networkx graph object (possible: MultiGraph)\n
-    :param startNodes: list-like denoting indicators of start nodes in graph for path definition, defaults to None (all nodesi ngraph)\n
-    :param endNodes: list-like denoting spcified end nodes in graph for path definition, defaults to None (all nodes in graph)\n
-    :param weight: str denoting edge attribute for weights of path lengths, defaults to None\n
-    :return: two dictionaries with indicators of end nodes as keys and 1) paths (list of visited nodes) as values and 2) path lengths
-    """
-
-    # Plausbility checks
-    if startNodes is None:
-        startNodes = list(G.nodes())
-
-    if endNodes is None:
-        endNodes = list(G.nodes())
-
-    # Initializations
-    paths = []
-    lengths = []
-
-    # Extract all paths from start nodes to specified end nodes
-    ## Store dictionaries for all start nodes in list
-    for n in startNodes:
-        path = dict(nx.single_source_all_shortest_paths(G = G, source = n, weight = weight))
-        length = dict(nx.shortest_path_length(G = G, source = n, weight = weight))
-
-        path_new = {k:v for k,v in path.items() if k in endNodes}
-        length_new = {k:v for k,v in length.items() if k in endNodes}
-
-        # Cut paths to those ending at the end nodes
-        paths.append(path_new)
-        lengths.append(length_new)
-
-    # Initialize dictionaries for shotrets paths and lengths
-    alleEndNodes = set().union(*(d.keys() for d in lengths))
-    shortestLength = {}
-    shortestPath = {}
-
-    for key in alleEndNodes:
-        min_len = float('inf')
-        min_idx = -1
-
-        for i, d in enumerate(lengths):
-            if key in d and d[key] < min_len:
-                min_len = d[key]
-                min_idx = i
-            if min_idx >= 0:
-                shortestLength[key] = min_len
-                shortestPath[key] = paths[min_idx][key]
-
-    return shortestPath, shortestLength
+# Inactive: no references in maintained repository sources or notebooks.
+# def shortest_paths_pathweights(
+#         G:nx.graph,
+#         startNodes:list = None,
+#         endNodes:list = None,
+#         weight:str = None
+#     ):
+#     """
+#     Function to return shortest paths as lists of visited nodes and corresponding path lengths in networkx MultiGraph objects.\n
+#
+#     :param G: networkx graph object (possible: MultiGraph)\n
+#     :param startNodes: list-like denoting indicators of start nodes in graph for path definition, defaults to None (all nodesi ngraph)\n
+#     :param endNodes: list-like denoting spcified end nodes in graph for path definition, defaults to None (all nodes in graph)\n
+#     :param weight: str denoting edge attribute for weights of path lengths, defaults to None\n
+#     :return: two dictionaries with indicators of end nodes as keys and 1) paths (list of visited nodes) as values and 2) path lengths
+#     """
+#
+#     # Plausbility checks
+#     if startNodes is None:
+#         startNodes = list(G.nodes())
+#
+#     if endNodes is None:
+#         endNodes = list(G.nodes())
+#
+#     # Initializations
+#     paths = []
+#     lengths = []
+#
+#     # Extract all paths from start nodes to specified end nodes
+#     ## Store dictionaries for all start nodes in list
+#     for n in startNodes:
+#         path = dict(nx.single_source_all_shortest_paths(G = G, source = n, weight = weight))
+#         length = dict(nx.shortest_path_length(G = G, source = n, weight = weight))
+#
+#         path_new = {k:v for k,v in path.items() if k in endNodes}
+#         length_new = {k:v for k,v in length.items() if k in endNodes}
+#
+#         # Cut paths to those ending at the end nodes
+#         paths.append(path_new)
+#         lengths.append(length_new)
+#
+#     # Initialize dictionaries for shotrets paths and lengths
+#     alleEndNodes = set().union(*(d.keys() for d in lengths))
+#     shortestLength = {}
+#     shortestPath = {}
+#
+#     for key in alleEndNodes:
+#         min_len = float('inf')
+#         min_idx = -1
+#
+#         for i, d in enumerate(lengths):
+#             if key in d and d[key] < min_len:
+#                 min_len = d[key]
+#                 min_idx = i
+#             if min_idx >= 0:
+#                 shortestLength[key] = min_len
+#                 shortestPath[key] = paths[min_idx][key]
+#
+#     return shortestPath, shortestLength
 
 
 def sum_attrs_along_shortest_paths(
-        G:nx.graph,
-        startNodes:list = None,
-        endNodes:list = None,
-        weight:str = None,
-        output_attr:str = None,
-        dictAttrsEndNodes:dict = None
+        G: nx.Graph,
+        startNodes: Optional[list] = None,
+        endNodes: Optional[list] = None,
+        weight: Optional[str] = None,
+        output_attr: Optional[str] = None,
+        dictAttrsEndNodes: Optional[dict] = None
     ):
     """
     Function that sums up attributes specified at end nodes on all edges belonging to the shoretst path between end nodes and specified start nodes. The attributes at the end nodes are stored in the dictionary **dictAttrsEndNodes** with node indicators as keys and attributes as values.\n
@@ -96,15 +99,20 @@ def sum_attrs_along_shortest_paths(
     # Check if G is multigraph object and may contain edge keys
     multi = True if isinstance(G,  (nx.MultiGraph, nx.MultiDiGraph)) else False
 
-    # Calculate shortest path between each end node and the closest starting node and respective shortest path weights
-    shortestPath, _ = shortest_paths_pathweights(G = G, startNodes = startNodes, endNodes = endNodes, weight = weight)
+    # Reset requested sums so repeated calls do not accumulate old results.
+    nx.set_edge_attributes(G, 0, outAttr_weight)
 
-    breakpoint()
+    # Calculate shortest path between each end node and the closest starting node and respective shortest path weights
+    # One multi-source traversal avoids enumerating all equally short paths in meshes.
+    sources = list(G.nodes) if startNodes is None else list(startNodes)
+    targets = set(G.nodes) if endNodes is None else set(endNodes)
+    _, paths = nx.multi_source_dijkstra(G, sources=sources, weight=weight)
+    shortestPath = {node: [path] for node, path in paths.items() if node in targets}
+
     if multi:  # mulitgraph object, edge keys for parallel edges may be present
         for k, path in shortestPath.items():
             for u, v in zip(path[0][:-1], path[0][1:]):
 
-                breakpoint()
                 edges = G[u][v] # -> All edges betwen nodes u and v
 
                 # Address possible parallel edges
@@ -137,12 +145,12 @@ def sum_attrs_to_closest_supplier(
         lines:gp.GeoDataFrame,
         buildings:gp.GeoDataFrame,
         producers:gp.GeoDataFrame,
-        building_attrs:list = None,
-        output_attr:list = None,
+        building_attrs: Optional[list] = None,
+        output_attr: Optional[list] = None,
         weight:str = 'length',
         line_id:str = 'unique_ID_lines',
         building_id:str = 'unique_ID_polys',
-        dict_polyID_lineID:dict = None,
+        dict_polyID_lineID: Optional[dict] = None,
         max_distance:float = 50.0,
     ):
     """
@@ -324,7 +332,6 @@ def sum_attrs_to_closest_supplier(
             edge_line_map[(v, u)] = line_key
 
     for attr, out_attr in zip(building_attrs, output_attr):
-        breakpoint()
         dict_attrs = {node: values[attr] for node, values in node_building_attr_sums.items()}
         G, edge_attr_dict = sum_attrs_along_shortest_paths(
             G = G,
@@ -342,7 +349,6 @@ def sum_attrs_to_closest_supplier(
 
         lines_out[out_attr] = lines_out[out_attr].fillna(0)
 
-    breakpoint()
 
     return lines_out
 
@@ -426,14 +432,14 @@ def network_span_bfs(
 
     # Plausibility checks
     if any([expr not in lines.columns for expr in (val_Attr, att_pth, length_Attr, att_nB, att_heatDemand)]):
-        print('\n### Provide all necessary columns for processing!. ###')
+        _print_info('\n### Provide all necessary columns for processing!. ###')
         return    
     
     # Create networkx graph from line representation
     if sortByAttr is not None:
         if sortMethod.lower() not in ('ascending', 'descending'):
             sortMethod = 'ascending'
-            print('### No proper sort method for attribute ', sortByAttr, ' is chosen. Ascending is used as default method. ###')
+            _print_info('### No proper sort method for attribute ', sortByAttr, ' is chosen. Ascending is used as default method. ###')
         elif sortMethod.lower() == 'ascending':
             sortMethod = 'ascending'
         else:
@@ -446,7 +452,7 @@ def network_span_bfs(
 
     # Defining startpoints
     if startpoints is None:
-        print('### Please provide GeoDataFrame of startpoints for network extension search. Aborting... ###')
+        _print_info('### Please provide GeoDataFrame of startpoints for network extension search. Aborting... ###')
         return
 
     else:
@@ -469,7 +475,7 @@ def network_span_bfs(
     G_start = G.copy() 
 
     for nn, startLoc in enumerate(startLocs):
-        print(f'\n### Network extension algorithm, startpoint {nn+1} of {len(startLocs)}.\n')
+        _print_info(f'\n### Network extension algorithm, startpoint {nn+1} of {len(startLocs)}.\n')
         # res contains tuples of form (edge), ID, order for each edge added to the final graph ((edge), enum_ID, order, currentSF, usedEnergyBudget, usedPowerBudget, currentThermalLossFactor, summedLength, avAtt)
         res  = list(
             bfs_network_extension(
@@ -647,7 +653,7 @@ def bfs_network_extension(
     
     # Validity checks
     if considerPowerBudget and powerBudget == np.inf:
-        print('\n### considerPowerBudget is set to True, but provided powerBudget is np.inf. Please check again. Aborting... ###')
+        _print_info('\n### considerPowerBudget is set to True, but provided powerBudget is np.inf. Please check again. Aborting... ###')
         return
 
     # Initialisations
@@ -670,7 +676,7 @@ def bfs_network_extension(
 
     # Plausibility checks
     if att_pth is None:
-        print(f'"att_pth" is not provided in graph representation. It is calculated from {att_heatDemand}/1700. ###')
+        _print_info(f'"att_pth" is not provided in graph representation. It is calculated from {att_heatDemand}/1700. ###')
 
 
 
@@ -776,13 +782,13 @@ def bfs_network_extension(
     summedHeatDemand *= (1+currentThermalLossFactor)
 
 
-    print(f'\n### Remaining energy budget = {(eBudget - summedHeatDemand):.2f} MWh, \nNumber of visited nodes = {len(visited_nodes)}')
-    print(f'\n### Remaining thermal power budget = {pBudget - summedPth:.2f} MW')
-    print(f'\n### Total number of connected buildings = {summedB}')
-    print(f'\n### Total network length = {summedLength:.2f} m')
-    print(f'\n### Average line density in network = {summedHeatDemand/max(1e-10,summedLength):.2f} MWh/m')
-    print(f'\n### Potential lines are:\n {potentialEdges}\nNumber of potential lines is {len(potentialEdges)}')
-    print(f'\n### Number of visited edges is {len(visited_edges)}')
+    _print_info(f'\n### Remaining energy budget = {(eBudget - summedHeatDemand):.2f} MWh, \nNumber of visited nodes = {len(visited_nodes)}')
+    _print_info(f'\n### Remaining thermal power budget = {pBudget - summedPth:.2f} MW')
+    _print_info(f'\n### Total number of connected buildings = {summedB}')
+    _print_info(f'\n### Total network length = {summedLength:.2f} m')
+    _print_info(f'\n### Average line density in network = {summedHeatDemand/max(1e-10,summedLength):.2f} MWh/m')
+    _print_info(f'\n### Potential lines are:\n {potentialEdges}\nNumber of potential lines is {len(potentialEdges)}')
+    _print_info(f'\n### Number of visited edges is {len(visited_edges)}')
 
     return
 
@@ -908,13 +914,13 @@ def network_span_dfs_level_search(
     # Creating networkx graph from input of lines GeoDataFrame  
     if lengthAttr is None:
         lines['length_dfs']     = lines.geometry.length
-        print('\n### Length attribute ', lengthAttr, ' is not included in provided DataFrame. It is now calculated from the lines geometry. ###')
+        _print_info('\n### Length attribute ', lengthAttr, ' is not included in provided DataFrame. It is now calculated from the lines geometry. ###')
 
     # Create networkx graph from line representation
     if sortByAttr is not None:
         if sortMethod.lower() not in ('ascending', 'descending'):
             sortMethod = 'ascending'
-            print('### No proper sort method for attribute ', sortByAttr, ' is chosen. Ascending is used as default method. ###')
+            _print_info('### No proper sort method for attribute ', sortByAttr, ' is chosen. Ascending is used as default method. ###')
         elif sortMethod.lower() == 'ascending':
             sortMethod = 'ascending'
         else:
@@ -935,7 +941,7 @@ def network_span_dfs_level_search(
         startLocs = list(set((tuple(closest_point(points = arrB, target = poin, threshDistance = 100)),0) for poin in arrA))
 
     if len(startLocs) == 0:
-        print('\n### No suitable starting point could be found by the parameters provided. Aborting... ###')
+        _print_info('\n### No suitable starting point could be found by the parameters provided. Aborting... ###')
         return lines
     
     # Start algorithm: graphs are created for each starting point
@@ -1080,7 +1086,7 @@ def dfs_level_search(
     
     # Plausibility check for max. 3 levels for search
     if nLevels not in [1,2,3]:
-        print(f'\n### Error: nLevels must not exceed 3. Aborting... ###')
+        _print_info(f'\n### Error: nLevels must not exceed 3. Aborting... ###')
         return
     
     # Initialization of counter for addition to graph
@@ -1768,7 +1774,7 @@ def MST_graph_subset(g:nx.graph, weight:str = None, subsetNodes:set = None):
     if type(subsetNodes) == set | type(subsetNodes) == list:
         if len(subsetNodes) <= 1:
             calcMSTEntireGraph = True
-            print('\n### Provided subset of nodes in graph g contains one or less nodes. MST for entire set of nodes in graph is calculated. ###')
+            _print_info('\n### Provided subset of nodes in graph g contains one or less nodes. MST for entire set of nodes in graph is calculated. ###')
 
     if subsetNodes is None:
         calcMSTEntireGraph = True
@@ -1874,7 +1880,7 @@ if __name__ == '__main__':
     # Minimum number of buildings connected to entire networks
     n_build = 17
 
-    print(f'\n###\nExecuting minimal example for network routing algorithm with the following parameters:\n\
+    _print_info(f'\n###\nExecuting minimal example for network routing algorithm with the following parameters:\n\
           valFirstlvl = {valFirstlvl}\n \
           valMeanSecondlvl = {valMeanSecondlvl}\n \
           valMeanThirdlvl = {valMeanThirdlvl}\n \
@@ -1904,7 +1910,7 @@ if __name__ == '__main__':
 
     startpoints = gp.GeoDataFrame(geometry = [Point(0, 0)])
 
-    print(f'\n### Before algorithm ...')
+    _print_info(f'\n### Before algorithm ...')
     fig, ax2 = plt.subplots()
     lines.plot(
         ax = ax2, 
@@ -1937,7 +1943,7 @@ if __name__ == '__main__':
         valStart = dem_val_start
     )
 
-    print(f'\n### After algorithm ...')
+    _print_info(f'\n### After algorithm ...')
 
     fig, ax = plt.subplots()
     gdf_graphs.plot(

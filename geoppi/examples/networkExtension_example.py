@@ -1,3 +1,4 @@
+from geoppi.auxFunctions import _print_info
 
 # %% Imports
 import os
@@ -86,7 +87,7 @@ gdf_graphs, graphList = network_span_bfs(
 
 endtime = time.time()
 timeElapsed = endtime - starttime
-print(f'\n### Time elapsed for algorithm is {timeElapsed:.2} seconds ###')
+_print_info(f'\n### Time elapsed for algorithm is {timeElapsed:.2} seconds ###')
 
 
 ## Plotting
@@ -100,7 +101,7 @@ startpoints.plot(ax = ax, color = 'red', zorder = 10)
 # Export
 if not os.path.exists(flp_out):
     os.makedirs(flp_out)
-    print(f'### New directory for storing results is created! ###')
+    _print_info(f'### New directory for storing results is created! ###')
 
 # Save edges
 output_path = flp_out / Path(f'exmapleNetwork_extension.gpkg')

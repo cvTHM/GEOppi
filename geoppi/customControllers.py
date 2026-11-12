@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import numpy as np
-
+from geoppi.auxFunctions import _print_info
 import pandapipes as ppi
 from pandapower.control.basic_controller import (BasicCtrl)
 from pandapower.control.util.auxiliary import (drop_same_type_existing_controllers, log_same_type_existing_controllers)
@@ -23,15 +23,15 @@ def checkUserPFOptionsThermal(net, ctrlName:str):
         if 'mode' in pf_options.keys():
             if pf_options['mode'] not in ('sequential', 'bidirectional', 'all', 'heat'): # Check if heat transfer calculation is included in user-defined pipeflow options
                 modee = pf_options['mode']
-                print(f'\n### Attention: Defined mode in user_pf_options of the network {modee} does not include heat transfer calculations. Make sure to set mode to any of ("sequential", "bidirectional", "all", "heat") as this is necessary for the defined controller type {ctrlName}. ###\n')
+                _print_info(f'\n### Attention: Defined mode in user_pf_options of the network {modee} does not include heat transfer calculations. Make sure to set mode to any of ("sequential", "bidirectional", "all", "heat") as this is necessary for the defined controller type {ctrlName}. ###\n')
                 return False
             else:
                 return True
         else:
-            print(f'\n### Attention: No user-defined option "mode" in user_pf_options found. Make sure to include mode from any of ("sequential", "bidirectional", "all", "heat") in user_pf_options as this is necessary for the defined controller type {ctrlName}. ###\n')
+            _print_info(f'\n### Attention: No user-defined option "mode" in user_pf_options found. Make sure to include mode from any of ("sequential", "bidirectional", "all", "heat") in user_pf_options as this is necessary for the defined controller type {ctrlName}. ###\n')
 
     else:
-        print(f'\n### Attention: No user-defined options in user_pf_options found. Make sure to include mode from any of ("sequential", "bidirectional", "all", "heat") in user_pf_options as this is necessary for the defined controller type {ctrlName}. ###\n')
+        _print_info(f'\n### Attention: No user-defined options in user_pf_options found. Make sure to include mode from any of ("sequential", "bidirectional", "all", "heat") in user_pf_options as this is necessary for the defined controller type {ctrlName}. ###\n')
 
 
 #####################################################################
@@ -263,7 +263,7 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
         if th_user_pf is not None:
             if not th_user_pf:
                 ppi.set_user_pf_options(net = net, mode="sequential", reset = False)
-                print(f'\n... pf option mode is set to sequential.')
+                _print_info(f'\n... pf option mode is set to sequential.')
 
         # Save initial conditions of network
         ## During control step, ccontrolled_mdoit_kg_per_s in heat_cosnumer components is changed
@@ -373,7 +373,7 @@ class ppi_HeatConsumerSetTempCtrl(BasicCtrl):
 
                 # Get indices of heat consumers who feature supply temperature lower than target reflux temperature (indicates too low mass flow)
                 idxs_undercut = np.where(T_from_current - self.target_T_arr < 0)[0]
-                print(f'\n### Supply temperature is lower than target temperature at heat_consumer idxs {np.array(self.heatConsumer_active_idxs)[idxs_undercut]} ###')
+                _print_info(f'\n### Supply temperature is lower than target temperature at heat_consumer idxs {np.array(self.heatConsumer_active_idxs)[idxs_undercut]} ###')
                 
                 # Get indices of heat consumers whose supply temperature is less than self.min_dT above target reflux temperature
                 idxs_temp = np.where(T_from_current - self.target_T_arr < self.min_dT)[0]

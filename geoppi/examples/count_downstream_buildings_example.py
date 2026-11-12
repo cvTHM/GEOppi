@@ -1,3 +1,4 @@
+from geoppi.auxFunctions import _print_info
 # %%
 import geopandas as gp
 import numpy as np
@@ -45,9 +46,8 @@ lines_downstream_single = geoppi.sum_attrs_to_closest_supplier(
     max_distance=100.0,
 )
 
-print('Downstream building counts for single producer:')
+_print_info('Downstream building counts for single producer:')
 
-print(lines_downstream_single[['unique_ID_lines', 'sum_n_buildings_downstream', 'sum_demand_use_th_downstream']].head(10))
 
 lines_downstream_single.to_file(DATA_DIR / "results" / 'lines_downstream_buildings_single.gpkg')
 
@@ -67,7 +67,6 @@ lines_downstream_both = geoppi.sum_attrs_to_closest_supplier(
     max_distance=100.0,
 )
 
-print('Downstream building counts for both producers:')
-print(lines_downstream_both[['unique_ID_lines', 'sum_n_buildings_downstream_both', 'sum_demand_use_th_downstream_both']].head(10))
+_print_info('Downstream building counts for both producers:')
 
 lines_downstream_both.to_file(DATA_DIR / "results" / 'lines_downstream_buildings_both.gpkg')
